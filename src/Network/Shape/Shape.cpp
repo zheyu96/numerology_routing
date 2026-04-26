@@ -1,4 +1,5 @@
 #include "Shape.h"
+#include "../Purification/Purification.h"
 #include <cmath>
 #include <algorithm>
 #include <iostream>
@@ -47,21 +48,8 @@ double Shape::recursion_get_fidelity(int left, int right, const map<pair<int, in
         }
 
         if (rounds > 0) {
-            // Pumping purification (paper Eq.4): F2 = raw_f (fresh Bell pair),
-            // F1 = F_cur (carried-over pair). F_bar = 1 - F.
-            double F2   = raw_f;
-            double F2b  = 1.0 - F2;
-            double Fcur = raw_f;
-            for (int r = 0; r < rounds; r++) {
-                double Fcurb = 1.0 - Fcur;
-                double num = Fcur * F2 + (1.0 / 9.0) * Fcurb * F2b;
-                double den = Fcur * F2
-                           + (1.0 / 3.0) * Fcur * F2b
-                           + (1.0 / 3.0) * Fcurb * F2
-                           + (5.0 / 9.0) * Fcurb * F2b;
-                Fcur = num / den;
-            }
-            return pass_tao(Fcur);
+            double purified_f = Purification::pumping_fidelity(raw_f, rounds);
+            return pass_tao(purified_f);
         }
 
         // 無 purification，直接回傳原始 Fidelity 並衰減

@@ -1,4 +1,5 @@
 #include "Graph.h"
+#include "../Purification/Purification.h"
 #include <cmath>
 using namespace std;
 
@@ -105,8 +106,7 @@ const map<pair<int, int>, double>& Graph::get_F_init() const { return F_init; }
 double Graph::get_link_werner(int u,int v){ //werner state
     auto it=F_init.find({u,v});
     assert(it!=F_init.end());
-    double F=it->second;
-    double W=(4.0*F-1.0)/3.0;
+    double W=Purification::fidelity_to_werner(it->second);
     assert(W>=0.0&&W<=1.0);
     return W;
 }
@@ -315,7 +315,7 @@ void Graph::reserve_shape_ASAP(Shape shape, bool enable_purification) {
         int src=nm.front().first,dst=nm.back().first;
         double pr = enable_purification ? path_Pr_purify(shape) : path_Pr(shape);
         cerr<<"\033[1;34m"<<"initial fid = "<<get_ini_fid(src,dst)<<" real fidelity = "<<shape_fidelity<<" hop count = "<<(nm.size()-1)<<" prob = "<<pr<<"\033[0m"<<endl;
-        fidelity_gain += ((shape_fidelity*4.0L-1.0L)/3.0L * pr);
+        fidelity_gain += (Purification::fidelity_to_werner(shape_fidelity) * pr);
         pure_fidelity += shape_fidelity;
         succ_request_cnt += pr;
     }
@@ -381,7 +381,7 @@ void Graph::reserve_shape(Shape shape, bool enable_purification /*= false*/) {
     int src=nm.front().first,dst=nm.back().first;
     double pr = enable_purification ? path_Pr_purify(shape) : path_Pr(shape);
     cerr<<"\033[1;34m"<<"initial fid = "<<get_ini_fid(src,dst)<<" real fidelity = "<<shape_fidelity<<" hop count = "<<(nm.size()-1)<<" prob = "<<pr<<"\033[0m"<<endl;
-    fidelity_gain += ((shape_fidelity*4.0L-1.0L)/3.0L * pr);
+    fidelity_gain += (Purification::fidelity_to_werner(shape_fidelity) * pr);
     pure_fidelity += shape_fidelity;
     succ_request_cnt += pr;
 
@@ -438,7 +438,7 @@ void Graph::reserve_shape2(Shape shape, bool enable_purification) {
         int src=nm.front().first,dst=nm.back().first;
         double pr = enable_purification ? path_Pr_purify(shape) : path_Pr(shape);
         cerr<<"\033[1;34m"<<"initial fid = "<<get_ini_fid(src,dst)<<" real fidelity = "<<shape_fidelity<<" hop count = "<<(nm.size()-1)<<" prob = "<<pr<<"\033[0m"<<endl;
-        fidelity_gain += ((shape_fidelity*4.0L-1.0L)/3.0L * pr);
+        fidelity_gain += (Purification::fidelity_to_werner(shape_fidelity) * pr);
         pure_fidelity += shape_fidelity;
         succ_request_cnt += pr;
     }
@@ -479,28 +479,9 @@ double Graph::path_Pr_purify(const Shape& shape) {
         int u = nm[i].first, v = nm[i + 1].first;
         int rounds = (i < (int)pr.size()) ? pr[i] : 0;
 
-        double p_link = get_entangle_succ_prob(u, v);
-        if(rounds > 0) {
-            // Pumping purification (paper Eq.4-5): F2 = F_init (fresh Bell pair),
-            // F1 = F_cur (carried-over pair).
-            double F2   = get_F_init(u, v);
-            double F2b  = 1.0 - F2;
-            double Fcur = F2;
-            for(int r = 0; r < rounds; r++) {
-                double Fcurb = 1.0 - Fcur;
-                // P_p (Eq.5)
-                double Pp = Fcur * F2
-                          + (1.0 / 3.0) * Fcur * F2b
-                          + (1.0 / 3.0) * Fcurb * F2
-                          + (5.0 / 9.0) * Fcurb * F2b;
-                p_link *= Pp;
-                // additional fresh entanglement consumed this round
-                p_link *= get_entangle_succ_prob(u, v);
-                // F_p (Eq.4)
-                double num = Fcur * F2 + (1.0 / 9.0) * Fcurb * F2b;
-                Fcur = num / Pp;
-            }
-        }
+        double fresh_werner = get_link_werner(u, v);
+        double p_link = Purification::pumping_success_prob(
+            get_entangle_succ_prob(u, v), fresh_werner, rounds);
         Pr *= p_link;
     }
 

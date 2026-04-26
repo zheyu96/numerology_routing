@@ -56,10 +56,10 @@ a.out: main.cpp $(dependency) $(algorithm) $(routing)
 Network/Node/Node.o: Network/Node/Node.cpp Network/Node/Node.h config.h
 	g++ -c $(gcc_flag) Network/Node/Node.cpp -o Network/Node/Node.o
 
-Network/Shape/Shape.o: Network/Shape/Shape.cpp Network/Shape/Shape.h config.h
+Network/Shape/Shape.o: Network/Shape/Shape.cpp Network/Shape/Shape.h Network/Purification/Purification.h config.h
 	g++ -c $(gcc_flag) Network/Shape/Shape.cpp -o Network/Shape/Shape.o
 
-Network/Graph/Graph.o: Network/Graph/Graph.cpp Network/Graph/Graph.h config.h
+Network/Graph/Graph.o: Network/Graph/Graph.cpp Network/Graph/Graph.h Network/Purification/Purification.h config.h
 	g++ -c $(gcc_flag) Network/Graph/Graph.cpp -o Network/Graph/Graph.o
 
 Algorithm/AlgorithmBase/AlgorithmBase.o: Algorithm/AlgorithmBase/AlgorithmBase.h Algorithm/AlgorithmBase/AlgorithmBase.cpp config.h
@@ -82,7 +82,7 @@ Algorithm/MyAlgo6/MyAlgo6.o: Algorithm/MyAlgo6/MyAlgo6.cpp Algorithm/MyAlgo6/MyA
 # Werner 演算法編譯規則
 Algorithm/WernerAlgo/WernerAlgo.o: Algorithm/WernerAlgo/WernerAlgo.cpp Algorithm/WernerAlgo/WernerAlgo.h config.h
 	g++ -c $(gcc_flag) Algorithm/WernerAlgo/WernerAlgo.cpp -o Algorithm/WernerAlgo/WernerAlgo.o
-Algorithm/WernerAlgo2/WernerAlgo2.o: Algorithm/WernerAlgo2/WernerAlgo2.cpp Algorithm/WernerAlgo2/WernerAlgo2.h config.h
+Algorithm/WernerAlgo2/WernerAlgo2.o: Algorithm/WernerAlgo2/WernerAlgo2.cpp Algorithm/WernerAlgo2/WernerAlgo2.h Network/Purification/Purification.h config.h
 	g++ -c $(gcc_flag) Algorithm/WernerAlgo2/WernerAlgo2.cpp -o Algorithm/WernerAlgo2/WernerAlgo2.o
 Algorithm/WernerAlgo3/WernerAlgo3.o: Algorithm/WernerAlgo3/WernerAlgo3.cpp Algorithm/WernerAlgo3/WernerAlgo3.h config.h
 	g++ -c $(gcc_flag) Algorithm/WernerAlgo3/WernerAlgo3.cpp -o Algorithm/WernerAlgo3/WernerAlgo3.o

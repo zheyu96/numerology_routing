@@ -1,3 +1,4 @@
+#include "../../Network/Purification/Purification.h"
 #include "WernerAlgo2.h"
 #include <fstream> 
 #include <iostream>
@@ -139,16 +140,10 @@ WernerAlgo2::ZLabel WernerAlgo2::gen_leaf_label(int s,int e,int st,int tlen,int 
         double bt=beta[s][st-i]+beta[e][st-i];
         Bleaf+=bt*Purify_in_vt[tlen-1][i];
     }
-    // Werner-equivalent of paper Eq.(4)-(5) under F=(3w+1)/4:
-    //   P_p   = (w1*w2 + 1) / 2
-    //   w_new = (4*w1*w2 + w1 + w2) / (3*w1*w2 + 3)
     double w_ini=graph.get_link_werner(s,e);
-    double w_cur=w_ini,p_cur=graph.get_entangle_succ_prob(s,e);
-    for(int i=1;i<=tlen-1;i++){
-        p_cur*=(w_cur*w_ini+1.0L)/2.0L;
-        w_cur=(4.0L*w_cur*w_ini+w_cur+w_ini)/(3.0L*w_cur*w_ini+3.0L);
-        p_cur*=graph.get_entangle_succ_prob(s,e);
-    }
+    int rounds = tlen - 1;
+    double w_cur = Purification::pumping_werner(w_ini, rounds);
+    double p_cur = Purification::pumping_success_prob(graph.get_entangle_succ_prob(s,e), w_ini, rounds);
     double Zleaf=sqrt(-log(w_cur));
     double Pleaf=log(p_cur);
     if(Zleaf>dpp.Zhat) return ZLabel();
@@ -602,8 +597,8 @@ void WernerAlgo2::run() {
                     int hop = (int)sv.size() - 1;
 
                     // W = (4F - 1) / 3
-                    double werner_no_pur = (4.0 * fid_no_pur - 1.0) / 3.0;
-                    double werner_with_pur = (4.0 * fid_with_pur - 1.0) / 3.0;
+                    double werner_no_pur = Purification::fidelity_to_werner(fid_no_pur);
+                    double werner_with_pur = Purification::fidelity_to_werner(fid_with_pur);
 
                     // 收集每條 link 的 purify 詳細資訊
                     vector<LinkPurifyDetail> link_details;
@@ -612,17 +607,9 @@ void WernerAlgo2::run() {
                         int u = sv[li].first, v = sv[li+1].first;
                         int rounds = (li < pur_rounds.size()) ? pur_rounds[li] : 0;
                         double raw_f = graph.get_F_init(u, v);
-                        double raw_w = (4.0 * raw_f - 1.0) / 3.0;
-                        double w_cur = raw_w;
-                        if (rounds > 0) {
-                            // Werner-equivalent of paper Eq.(4):
-                            //   w_new = (4*w1*w2 + w1 + w2) / (3*w1*w2 + 3)
-                            for (int r = 0; r < rounds; r++) {
-                                w_cur = (4.0L * w_cur * raw_w + w_cur + raw_w)
-                                      / (3.0L * w_cur * raw_w + 3.0L);
-                            }
-                        }
-                        double purified_f = (3.0 * w_cur + 1.0) / 4.0;
+                        double raw_w = Purification::fidelity_to_werner(raw_f);
+                        double w_cur = Purification::pumping_werner(raw_w, rounds);
+                        double purified_f = Purification::werner_to_fidelity(w_cur);
                         link_details.push_back({u, v, rounds, raw_f, raw_w, w_cur, purified_f});
                     }
 
