@@ -140,11 +140,14 @@ WernerAlgo3::ZLabel WernerAlgo3::gen_leaf_label(int s,int e,int st,int tlen,int 
         double bt=beta[s][st-i]+beta[e][st-i];
         Bleaf+=bt*Purify_in_vt[tlen-1][i];
     }
+    // Werner-equivalent of paper Eq.(4)-(5) under F=(3w+1)/4:
+    //   P_p   = (w1*w2 + 1) / 2
+    //   w_new = (4*w1*w2 + w1 + w2) / (3*w1*w2 + 3)
     double w_ini=graph.get_link_werner(s,e);
     double w_cur=w_ini,p_cur=graph.get_entangle_succ_prob(s,e);
     for(int i=1;i<=tlen-1;i++){
-        p_cur*=(9.0L*w_cur*w_ini-3.0L*w_ini-3.0L*w_cur+5)/8.0L;
-        w_cur=(3*w_cur*w_ini+3*w_ini+3*w_cur-1.0L)/(9*w_cur*w_ini-3*w_ini-3*w_cur+5.0L);
+        p_cur*=(w_cur*w_ini+1.0L)/2.0L;
+        w_cur=(4.0L*w_cur*w_ini+w_cur+w_ini)/(3.0L*w_cur*w_ini+3.0L);
         p_cur*=graph.get_entangle_succ_prob(s,e);
     }
     double Zleaf=sqrt(-log(w_cur));
@@ -318,14 +321,14 @@ Shape_vector WernerAlgo3::backtrack_shape(ZLabel leaf,const vector<int>& path, v
 }
 
 int WernerAlgo3::split_dis(int s,int d,WernerAlgo3::ZLabel& L){
-    if(L.op!=WernerAlgo3::Op::MERGE||L.k<0) return 1e18/4;
+    if(L.op!=WernerAlgo3::Op::MERGE||L.k<0) return 1000000000;
     int mid=(s+d)/2;
     return abs(mid-L.k);
 }
 
 pair<double,WernerAlgo3::ZLabel> WernerAlgo3::eval_best_J(int s, int d, int t, double alp){
     double bestJ=1e18;
-    int bestdis=1e18/4;
+    int bestdis=1000000000;
     int flag=0;
     ZLabel tmp={};
     for(auto L:DP_table[t][s][d]){

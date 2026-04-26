@@ -161,6 +161,7 @@ int Graph::distance(int src, int dst) {
         }
     }
     assert(false);
+    return 2000;
 }
 double Graph::get_ini_fid(int src,int dst){
     vector<bool> vis(num_nodes+1,false);
@@ -314,7 +315,7 @@ void Graph::reserve_shape_ASAP(Shape shape, bool enable_purification) {
         int src=nm.front().first,dst=nm.back().first;
         double pr = enable_purification ? path_Pr_purify(shape) : path_Pr(shape);
         cerr<<"\033[1;34m"<<"initial fid = "<<get_ini_fid(src,dst)<<" real fidelity = "<<shape_fidelity<<" hop count = "<<(nm.size()-1)<<" prob = "<<pr<<"\033[0m"<<endl;
-        fidelity_gain += ((shape_fidelity*3.0L-1.0L)/4.0L * pr);
+        fidelity_gain += ((shape_fidelity*4.0L-1.0L)/3.0L * pr);
         pure_fidelity += shape_fidelity;
         succ_request_cnt += pr;
     }
@@ -480,16 +481,24 @@ double Graph::path_Pr_purify(const Shape& shape) {
 
         double p_link = get_entangle_succ_prob(u, v);
         if(rounds > 0) {
-            double w_ini = get_link_werner(u, v);
-            double w_cur = w_ini;
+            // Pumping purification (paper Eq.4-5): F2 = F_init (fresh Bell pair),
+            // F1 = F_cur (carried-over pair).
+            double F2   = get_F_init(u, v);
+            double F2b  = 1.0 - F2;
+            double Fcur = F2;
             for(int r = 0; r < rounds; r++) {
-                // purification 成功機率 (Eq.8)
-                p_link *= (9.0 * w_cur * w_ini - 3.0 * w_ini - 3.0 * w_cur + 5.0) / 8.0;
-                // 額外 entanglement
+                double Fcurb = 1.0 - Fcur;
+                // P_p (Eq.5)
+                double Pp = Fcur * F2
+                          + (1.0 / 3.0) * Fcur * F2b
+                          + (1.0 / 3.0) * Fcurb * F2
+                          + (5.0 / 9.0) * Fcurb * F2b;
+                p_link *= Pp;
+                // additional fresh entanglement consumed this round
                 p_link *= get_entangle_succ_prob(u, v);
-                // 更新 werner parameter
-                w_cur = (3.0 * w_cur * w_ini + 3.0 * w_cur + 3.0 * w_ini - 1.0)
-                      / (9.0 * w_cur * w_ini - 3.0 * w_cur - 3.0 * w_ini + 5.0);
+                // F_p (Eq.4)
+                double num = Fcur * F2 + (1.0 / 9.0) * Fcurb * F2b;
+                Fcur = num / Pp;
             }
         }
         Pr *= p_link;

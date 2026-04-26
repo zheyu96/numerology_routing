@@ -200,13 +200,21 @@ vector<SDpair> generate_requests_purify_needed(Graph &graph, int requests_cnt, i
             double raw_f = edge_fids[left];
             int rounds = pur_rounds[left];
             if (rounds > 0) {
-                double w_e = (4.0 * raw_f - 1.0) / 3.0;
-                double w_cur = w_e;
+                double Fbase = raw_f;
+                double Fcur = raw_f;
                 for (int r = 0; r < rounds; r++) {
-                    w_cur = (3.0*w_cur*w_e + 3.0*w_cur + 3.0*w_e - 1.0)
-                          / (9.0*w_cur*w_e - 3.0*w_cur - 3.0*w_e + 5.0);
+                    // Paper Eq.(4): pumping purification with a fresh pair Fbase.
+                    double Fcur_bar = 1.0 - Fcur;
+                    double Fbase_bar = 1.0 - Fbase;
+                    double den = Fcur * Fbase
+                               + (1.0 / 3.0) * Fcur * Fbase_bar
+                               + (1.0 / 3.0) * Fcur_bar * Fbase
+                               + (5.0 / 9.0) * Fcur_bar * Fbase_bar;
+                    double num = Fcur * Fbase
+                               + (1.0 / 9.0) * Fcur_bar * Fbase_bar;
+                    Fcur = num / den;
                 }
-                return pass_tao_f((3.0 * w_cur + 1.0) / 4.0);
+                return pass_tao_f(Fcur);
             }
             return pass_tao_f(raw_f);
         }
@@ -496,9 +504,12 @@ int main(){
             // 若所有 pool 都用完但還不夠，循環重用
             if (pi_A >= (int)reqs_A.size() && pi_B >= (int)reqs_B.size() &&
                 pi_C >= (int)reqs_C.size() && pi_D >= (int)reqs_D.size()) {
-                if (!reqs_A.empty()) pi_A = 0;
-                else if (!reqs_B.empty()) pi_B = 0;
-                else break;
+                bool has_pool = false;
+                if (!reqs_A.empty()) { pi_A = 0; has_pool = true; }
+                if (!reqs_B.empty()) { pi_B = 0; has_pool = true; }
+                if (!reqs_C.empty()) { pi_C = 0; has_pool = true; }
+                if (!reqs_D.empty()) { pi_D = 0; has_pool = true; }
+                if (!has_pool) break;
             }
         }
         // fallback: 如果仍不夠
@@ -506,6 +517,15 @@ int main(){
             auto fallback = generate_requests_fid(graph, total_cnt - (int)default_requests[r].size(), 0.5, 2);
             for (auto &sd : fallback) default_requests[r].push_back(sd);
         }
+        if ((int)default_requests[r].size() < total_cnt && !default_requests[r].empty()) {
+            int base = (int)default_requests[r].size();
+            int pos = 0;
+            while ((int)default_requests[r].size() < total_cnt) {
+                default_requests[r].push_back(default_requests[r][pos % base]);
+                pos++;
+            }
+        }
+        assert((int)default_requests[r].size() >= total_cnt);
         default_requests[r].resize(total_cnt);
 
         // === 印出最終 request 的詳細統計 ===

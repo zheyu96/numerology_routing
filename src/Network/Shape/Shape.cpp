@@ -47,20 +47,21 @@ double Shape::recursion_get_fidelity(int left, int right, const map<pair<int, in
         }
 
         if (rounds > 0) {
-            // Fidelity -> Werner parameter: w = (4F - 1) / 3
-            double w_e = (4.0 * raw_f - 1.0) / 3.0;
-            double w_cur = w_e;
-
-            // Pumping purification (Eq.7-8)
+            // Pumping purification (paper Eq.4): F2 = raw_f (fresh Bell pair),
+            // F1 = F_cur (carried-over pair). F_bar = 1 - F.
+            double F2   = raw_f;
+            double F2b  = 1.0 - F2;
+            double Fcur = raw_f;
             for (int r = 0; r < rounds; r++) {
-                double num = 3.0 * w_cur * w_e + 3.0 * w_cur + 3.0 * w_e - 1.0;
-                double den = 9.0 * w_cur * w_e - 3.0 * w_cur - 3.0 * w_e + 5.0;
-                w_cur = num / den;
+                double Fcurb = 1.0 - Fcur;
+                double num = Fcur * F2 + (1.0 / 9.0) * Fcurb * F2b;
+                double den = Fcur * F2
+                           + (1.0 / 3.0) * Fcur * F2b
+                           + (1.0 / 3.0) * Fcurb * F2
+                           + (5.0 / 9.0) * Fcurb * F2b;
+                Fcur = num / den;
             }
-
-            // Werner parameter -> Fidelity: F = (3w + 1) / 4
-            double purified_f = (3.0 * w_cur + 1.0) / 4.0;
-            return pass_tao(purified_f);
+            return pass_tao(Fcur);
         }
 
         // 無 purification，直接回傳原始 Fidelity 並衰減

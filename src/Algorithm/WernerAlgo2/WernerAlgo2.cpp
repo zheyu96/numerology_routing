@@ -139,11 +139,14 @@ WernerAlgo2::ZLabel WernerAlgo2::gen_leaf_label(int s,int e,int st,int tlen,int 
         double bt=beta[s][st-i]+beta[e][st-i];
         Bleaf+=bt*Purify_in_vt[tlen-1][i];
     }
+    // Werner-equivalent of paper Eq.(4)-(5) under F=(3w+1)/4:
+    //   P_p   = (w1*w2 + 1) / 2
+    //   w_new = (4*w1*w2 + w1 + w2) / (3*w1*w2 + 3)
     double w_ini=graph.get_link_werner(s,e);
     double w_cur=w_ini,p_cur=graph.get_entangle_succ_prob(s,e);
     for(int i=1;i<=tlen-1;i++){
-        p_cur*=(9.0L*w_cur*w_ini-3.0L*w_ini-3.0L*w_cur+5)/8.0L;
-        w_cur=(3*w_cur*w_ini+3*w_ini+3*w_cur-1.0L)/(9*w_cur*w_ini-3*w_ini-3*w_cur+5.0L);
+        p_cur*=(w_cur*w_ini+1.0L)/2.0L;
+        w_cur=(4.0L*w_cur*w_ini+w_cur+w_ini)/(3.0L*w_cur*w_ini+3.0L);
         p_cur*=graph.get_entangle_succ_prob(s,e);
     }
     double Zleaf=sqrt(-log(w_cur));
@@ -338,13 +341,13 @@ Shape_vector WernerAlgo2::backtrack_shape(ZLabel leaf,const vector<int>& path, v
     return Shape_vector{};
 }
 int WernerAlgo2::split_dis(int s,int d,WernerAlgo2::ZLabel& L){
-    if(L.op!=WernerAlgo2::Op::MERGE||L.k<0) return 1e18/4;
+    if(L.op!=WernerAlgo2::Op::MERGE||L.k<0) return 1000000000;
     int mid=(s+d)/2;
     return abs(mid-L.k);
 }
 pair<double,WernerAlgo2::ZLabel> WernerAlgo2::eval_best_J(int s, int d, int t, double alp){
     double bestJ=1e18;
-    int bestdis=1e18/4;
+    int bestdis=1000000000;
     int flag=0;
     ZLabel tmp={};
     for(auto L:DP_table[t][s][d]){
@@ -612,10 +615,11 @@ void WernerAlgo2::run() {
                         double raw_w = (4.0 * raw_f - 1.0) / 3.0;
                         double w_cur = raw_w;
                         if (rounds > 0) {
+                            // Werner-equivalent of paper Eq.(4):
+                            //   w_new = (4*w1*w2 + w1 + w2) / (3*w1*w2 + 3)
                             for (int r = 0; r < rounds; r++) {
-                                double num = 3.0L * w_cur * raw_w + 3.0L * w_cur + 3.0L * raw_w - 1.0L;
-                                double den = 9.0L * w_cur * raw_w - 3.0L * w_cur - 3.0L * raw_w + 5.0L;
-                                w_cur = num / den;
+                                w_cur = (4.0L * w_cur * raw_w + w_cur + raw_w)
+                                      / (3.0L * w_cur * raw_w + 3.0L);
                             }
                         }
                         double purified_f = (3.0 * w_cur + 1.0) / 4.0;
