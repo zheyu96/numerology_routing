@@ -73,6 +73,22 @@ vector<SDpair> generate_requests_fid(Graph graph, int requests_cnt, double fid_t
     return requests;
 }
 
+bool is_better_result(const map<string, double>& lhs, const map<string, double>& rhs) {
+    const double EPS = 1e-9;
+
+    double lhs_fidelity = lhs.at("fidelity_gain");
+    double rhs_fidelity = rhs.at("fidelity_gain");
+    if(lhs_fidelity > rhs_fidelity + EPS) return true;
+    if(rhs_fidelity > lhs_fidelity + EPS) return false;
+
+    double lhs_succ = lhs.at("succ_request_cnt");
+    double rhs_succ = rhs.at("succ_request_cnt");
+    if(lhs_succ > rhs_succ + EPS) return true;
+    if(rhs_succ > lhs_succ + EPS) return false;
+
+    return lhs.at("runtime") + EPS < rhs.at("runtime");
+}
+
 int main() {
     string file_path = "../data/";
 
@@ -98,7 +114,6 @@ int main() {
     change_parameter["bucket_eps"] = {0.001, 0.01, 0.05, 0.1, 0.5};
 
     vector<string> X_names = {"epsilon", "bucket_eps"};
-    vector<string> Y_names = {"fidelity_gain", "succ_request_cnt", "runtime"};
     int round = 5;
 
     vector<vector<SDpair>> default_requests(round);
@@ -166,19 +181,21 @@ int main() {
                 delete algo;
             }
 
-            for(string Y_name : Y_names) {
-                string ans_filename = "ans/Greedy_" + X_name + "_" + Y_name + "_ZFA2.ans";
-                ofstream ofs(file_path + ans_filename, ios::app);
-
-                double sum = 0;
-                string target_algo = "ZFA2";
-                for(int r = 0; r < round; r++) {
-                    sum += result[r][target_algo][Y_name];
+            string target_algo = "ZFA2";
+            int best_round = 0;
+            for(int r = 1; r < round; r++) {
+                if(is_better_result(result[r][target_algo], result[best_round][target_algo])) {
+                    best_round = r;
                 }
-
-                ofs << change_value << " " << sum / round << endl;
-                ofs.close();
             }
+
+            string ans_filename = "ans/Greedy_" + X_name + "_ZFA2.ans";
+            ofstream ofs(file_path + ans_filename, ios::app);
+            ofs << change_value << " "
+                << result[best_round][target_algo]["fidelity_gain"] << " "
+                << result[best_round][target_algo]["succ_request_cnt"] << " "
+                << result[best_round][target_algo]["runtime"] << endl;
+            ofs.close();
         }
     }
     return 0;
