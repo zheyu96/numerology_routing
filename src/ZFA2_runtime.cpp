@@ -110,8 +110,8 @@ int main() {
     default_setting["delta_P"] = 0.01;
 
     map<string, vector<double>> change_parameter;
-    change_parameter["epsilon"] = {0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95};
-    change_parameter["bucket_eps"] = {0.001, 0.01, 0.05, 0.1, 0.5};
+    change_parameter["epsilon"] = {0.05,0.1,0.15,0.2,0.25,0.3,0.35,0.4, 0.45,0.5, 0.55,0.6, 0.65,0.7, 0.75,0.8, 0.85,0.9, 0.95};
+    change_parameter["bucket_eps"] = {0.001, 0.01,0.02,0.03,0.04, 0.05, 0.1,0.15,0.2,0.25,0.3,0.35,0.4,0.45, 0.5,0.55,0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95};
 
     vector<string> X_names = {"epsilon", "bucket_eps"};
     int round = 5;
