@@ -30,7 +30,9 @@ public:
     #define double long double
     WernerAlgo2(const Graph& graph,
                const vector<pair<int,int>>& requests,
-               const map<SDpair, vector<Path>>& paths);
+               const map<SDpair, vector<Path>>& paths,
+               double epsilon = 0.5,
+               double bucket_eps = -1.0);
 
     void run();
     void set_experiment_label(const string& label) { experiment_label = label; }
@@ -61,6 +63,7 @@ private:
     }dpp;
     // ===== 參數 / 對偶變數（風格比照 MyAlgo1） =====
     double epsilon = 0.5;  // 原 0.35，加大加速收斂（近似比從 1.35 變 1.5）
+    double bucket_eps = -1.0;
     double obj = 0.0;
     vector<double> alpha;                 // 每個 request 的 dual
     vector<vector<double>> beta;          // beta[v][t]：節點-時間 dual

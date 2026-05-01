@@ -6,9 +6,11 @@
 
 using namespace std;
 
-WernerAlgo2::WernerAlgo2(const Graph& graph,const vector<pair<int,int>>& requests,const map<SDpair, vector<Path>>& paths): AlgorithmBase(graph, requests, paths)
+WernerAlgo2::WernerAlgo2(const Graph& graph,const vector<pair<int,int>>& requests,const map<SDpair, vector<Path>>& paths,double epsilon,double bucket_eps): AlgorithmBase(graph, requests, paths)
 {
     algorithm_name = "ZFA2";
+    this->epsilon = epsilon;
+    this->bucket_eps = bucket_eps;
 }
 
 void WernerAlgo2::variable_initialize() {
@@ -24,7 +26,7 @@ void WernerAlgo2::variable_initialize() {
     x.resize(requests.size());
     int V = graph.get_num_nodes();
     int T = graph.get_time_limit();
-    dpp.eps_bucket = graph.get_bucket_eps();
+    dpp.eps_bucket = (bucket_eps > 0.0) ? bucket_eps : graph.get_bucket_eps();
     double F_th=graph.get_fidelity_threshold();
     double w_th=(4.0*F_th-1.0)/3.0;
     dpp.Zhat = sqrt(-log(w_th))+1e-9;
@@ -32,7 +34,7 @@ void WernerAlgo2::variable_initialize() {
     dpp.T    = time_limit-1;
     dpp.tau_max=min(time_limit-1,5);
     dpp.eta  = graph.get_tao()/graph.get_time_limit();
-    dpp.deltaP=graph.get_delta_P();
+    dpp.deltaP = (dpp.eps_bucket > 0.0) ? log1p(dpp.eps_bucket) : graph.get_delta_P();
     beta.assign(V, vector<double>(T, INF));
 
     for (int v = 0; v < V; ++v) {
@@ -243,17 +245,20 @@ void WernerAlgo2::pareto_prune_byZ(vector<ZLabel>& cand) {
 void WernerAlgo2::bucket_by_ZP(vector<ZLabel>& cand) {
     if (cand.empty()) return;
     double q=1+dpp.eps_bucket;
+    if(q <= 1.0) q = 1.0 + 1e-12;
     double invLogQ=1.0/log(q);
     double deltaP=dpp.deltaP;
-    map<pair<double,double>,ZLabel> buckets;
+    if(deltaP <= 0.0) deltaP = log(q);
+    map<pair<long long,long long>,ZLabel> buckets;
     for(auto L:cand){
-        double kW;
+        long long kW;
         if(L.Z<=dpp.Zmin) kW=0.0;
         else{
-            kW=floor(log(L.Z/dpp.Zmin)*invLogQ+1e-12);
+            kW=(long long)floor(log(L.Z/dpp.Zmin)*invLogQ+1e-12);
             if(kW<0) kW=0.0;
-        } 
-        double kP=floor(-L.P/deltaP);
+        }
+        long long kP=(long long)floor((-L.P)/deltaP+1e-12);
+        if(kP<0) kP=0;
         auto key=make_pair(kW,kP);
         if(buckets.count(key)==0||L.B<buckets[key].B)
             buckets[key]=L;

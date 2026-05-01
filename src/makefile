@@ -11,7 +11,7 @@ algorithm = Algorithm/MyAlgo1/MyAlgo1.o Algorithm/MyAlgo2/MyAlgo2.o Algorithm/My
 
 # 時間量測專用演算法物件
 algorithm_zfa = Algorithm/WernerAlgo_time/WernerAlgo_time.o 
-algorithm_zfa2 = Algorithm/WernerAlgo2_time/WernerAlgo2_time.o
+algorithm_zfa2 = Algorithm/WernerAlgo2/WernerAlgo2.o
 algorithm2 = Algorithm/MyAlgo3/MyAlgo3.o Algorithm/MyAlgo1_time/MyAlgo1_time.o
 
 # 路由與路徑方法
@@ -35,9 +35,9 @@ zfa_run: ZFA_runtime.cpp $(dependency) $(algorithm_zfa) $(routing)
 	g++ -fopenmp -O3 $(gcc_flag) ZFA_runtime.cpp $(dependency) $(algorithm_zfa) $(routing) $(gurobi_flag) -o zfa_run
 	./zfa_run 
 
-# 2. 執行 WernerAlgo2_time 測試 (ZFA2_runtime.cpp)
-zfa2_run: ZFA2_runtime.cpp $(dependency) $(algorithm_zfa2) $(algorithm_zfa)  $(routing)
-	g++ -fopenmp -O3 $(gcc_flag) ZFA2_runtime.cpp $(dependency) $(algorithm_zfa2) $(algorithm_zfa) $(routing) $(gurobi_flag) -o zfa2_run
+# 2. 執行 WernerAlgo2 runtime 測試 (ZFA2_runtime.cpp)
+zfa2_run: ZFA2_runtime.cpp $(dependency) $(algorithm_zfa2) $(routing)
+	g++ -fopenmp -O3 $(gcc_flag) ZFA2_runtime.cpp $(dependency) $(algorithm_zfa2) $(routing) $(gurobi_flag) -o zfa2_run
 	./zfa2_run
 
 # 3. 舊有的時間量測目標
