@@ -41,6 +41,7 @@ public:
     int get_num_nodes();
     int get_time_limit();
     double get_succ_request_cnt();
+    double get_actual_req_cnt();
     int get_memory_total();
     int get_usage();
     double get_Zmin();

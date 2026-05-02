@@ -91,6 +91,7 @@ double Graph::get_Zmin(){ return Zmin; }
 double Graph::get_bucket_eps(){ return bucket_eps; }
 double Graph::get_time_eta(){ return time_eta; }
 double Graph::get_succ_request_cnt() { return succ_request_cnt;}
+double Graph::get_actual_req_cnt() { return actual_req_cnt; }
 int Graph::get_usage() { return usage; }
 
 const vector<double>& Graph::get_boundary() const { return boundary; }
