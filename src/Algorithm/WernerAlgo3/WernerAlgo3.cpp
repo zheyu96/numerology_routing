@@ -473,6 +473,7 @@ void WernerAlgo3::run() {
                 double w = (4.0L * fidelity - 1.0L) / 3.0L;
                 res["fidelity_gain"] += xval * Pr * w;
                 res["succ_request_cnt"] += xval * Pr;
+                res["actual_succ_request_cnt"] += xval;
                 ub_cnt++;
             }
         }
@@ -482,6 +483,7 @@ void WernerAlgo3::run() {
 
         cerr << "[" << algorithm_name << "] UB(Eq.14a)*1.1: fid_gain=" << (double)res["fidelity_gain"]
              << " succ_req=" << (double)res["succ_request_cnt"]
+             << " actual_succ_req=" << (double)res["actual_succ_request_cnt"]
              << " shapes=" << ub_cnt
              << " max_xsum=" << max_xsum << endl;
     }
