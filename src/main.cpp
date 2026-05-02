@@ -1,5 +1,8 @@
 
 #include "./config.h"
+#include <sys/resource.h>
+#include <new>
+#include <stdexcept>
 #include "Network/Graph/Graph.h"
 #include "Algorithm/AlgorithmBase/AlgorithmBase.h"
 #include "Algorithm/MyAlgo1/MyAlgo1.h"
@@ -18,6 +21,20 @@
 #include "Network/PathMethod/REPS/REPS.h"
 
 using namespace std;
+
+// [DEBUG] 印出當前 RSS / 系統記憶體 — 方便定位 std::bad_alloc 發生點
+static void DBG_mem(const char* tag) {
+    struct rusage ru;
+    if(getrusage(RUSAGE_SELF, &ru) == 0) {
+        // ru_maxrss 在 Linux 是 KB
+        cerr << "[MEM] " << tag << " RSS=" << ru.ru_maxrss << " KB" << endl;
+    } else {
+        cerr << "[MEM] " << tag << " (getrusage failed)" << endl;
+    }
+    cerr.flush();
+}
+
+#define DBG_HERE(tag) do { cerr << "[CKPT] " << tag << endl; cerr.flush(); } while(0)
 
 SDpair generate_new_request(int num_of_node){
     random_device rd;
@@ -620,6 +637,9 @@ int main(){
                 int sum_has_path = 0;
                 //#pragma omp parallel for
                 for(int r = 0; r < round; r++) {
+                  try {
+                    cerr << "[CKPT] === ROUND " << r << " START | X=" << X_name << " val=" << change_value << " ===" << endl;
+                    DBG_mem("round_start");
                     string filename = file_path + "input/round_" + to_string(r) + ".input";
                     ofstream ofs;
                     ofs.open(file_path + "log/" + path_method->get_name() + "_" + X_name + "_in_" + to_string(change_value) + "_Round_" + to_string(r) + ".log");
@@ -633,7 +653,10 @@ int main(){
 
 
                     double A = 0.25, B = 0.75, tao = input_parameter["tao"], T = 10, n = 2;
+                    DBG_HERE("before Graph ctor");
                     Graph graph(filename, time_limit, swap_prob, avg_memory, min_fidelity, max_fidelity, fidelity_threshold, A, B, n, T, tao,Zmin,bucket_eps,time_eta,input_parameter["delta_P"]);
+                    DBG_HERE("after Graph ctor");
+                    DBG_mem("after_graph");
 
                     ofs << "--------------- in round " << r << " -------------" <<endl;
                     vector<pair<int, int>> requests;
@@ -646,12 +669,20 @@ int main(){
                             requests.emplace_back(default_requests[r][idx]);
                             idx=(idx+1)%default_requests[r].size();
                         }
+                        DBG_HERE("requests filled from default_requests");
                     }
                     else{
+                        DBG_HERE("before generate_requests_fid");
                         requests=generate_requests_fid(graph,request_cnt,0,hop_count);
+                        DBG_HERE("after generate_requests_fid");
                     }
+                    cerr << "[CKPT] requests.size()=" << requests.size() << endl;
+                    DBG_HERE("before path_graph copy");
                     Graph path_graph = graph;
+                    DBG_HERE("after path_graph copy");
+                    DBG_mem("after_path_graph_copy");
                     path_graph.increase_resources(10);
+                    DBG_HERE("after increase_resources");
                     PathMethod *new_path_method;
                     if(path_method->get_name() == "Greedy") new_path_method = new Greedy();
                     else if(path_method->get_name() == "QCAST") new_path_method = new QCAST();
@@ -661,7 +692,10 @@ int main(){
                         assert(false);
                     }
 
+                    DBG_HERE("before build_paths");
                     new_path_method->build_paths(path_graph, requests);
+                    DBG_HERE("after build_paths");
+                    DBG_mem("after_build_paths");
                     cout << "found path" << endl;
                     const auto& raw_paths = new_path_method->get_paths();
                     map<SDpair, set<Path>> paths_st;
@@ -677,6 +711,7 @@ int main(){
                             paths[sdpair].push_back(path);
                         }
                     }
+                    DBG_HERE("after path_st/paths build");
 
                     int path_len = 0, path_cnt = 0, mx_path_len = 0;
 
@@ -705,22 +740,48 @@ int main(){
                     cerr << "Max path length = " << mx_path_len << "\n";
                     vector<AlgorithmBase*> algorithms;
                     //algorithms.emplace_back(new WernerAlgo_UB(graph,requests,paths));
+                    DBG_HERE("before new WernerAlgo3");
                     algorithms.emplace_back(new WernerAlgo3(graph,requests,paths));  // ZFA_UB (LP upper bound with purify)
+                    DBG_HERE("after new WernerAlgo3");
+                    DBG_mem("after_new_WernerAlgo3");
                     {
+                        DBG_HERE("before new WernerAlgo2");
                         auto* zfa2 = new WernerAlgo2(graph,requests,paths);
+                        DBG_HERE("after new WernerAlgo2");
+                        DBG_mem("after_new_WernerAlgo2");
                         string exp_label = X_name + "=" + to_string(change_value) + " Round=" + to_string(r);
                         zfa2->set_experiment_label(exp_label);
                         algorithms.emplace_back(zfa2);
                     }
                     if(X_name!="Zmin"&&X_name!="bucket_eps"&&X_name!="time_eta"){
+                        DBG_HERE("before new MyAlgo1");
                         algorithms.emplace_back(new MyAlgo1(graph, requests, paths));
+                        DBG_HERE("after new MyAlgo1");
+                        DBG_HERE("before new MyAlgo3");
                         algorithms.emplace_back(new MyAlgo3(graph, requests, paths));
+                        DBG_HERE("after new MyAlgo3");
+                        DBG_mem("after_all_algos_ctor");
                     }
 
 
                     //#pragma omp parallel for schedule(dynamic)
                     for(int i = 0; i < (int)algorithms.size(); i++) {
-                        algorithms[i]->run();
+                        cerr << "[CKPT] >>> RUN algo[" << i << "] = " << algorithms[i]->get_name() << endl;
+                        DBG_mem("before_run");
+                        try {
+                            algorithms[i]->run();
+                        } catch(const std::bad_alloc& e) {
+                            cerr << "[FATAL] std::bad_alloc inside algo[" << i << "] = "
+                                 << algorithms[i]->get_name() << " : " << e.what() << endl;
+                            DBG_mem("at_bad_alloc");
+                            throw;
+                        } catch(const std::exception& e) {
+                            cerr << "[FATAL] std::exception inside algo[" << i << "] = "
+                                 << algorithms[i]->get_name() << " : " << e.what() << endl;
+                            throw;
+                        }
+                        cerr << "[CKPT] <<< DONE algo[" << i << "] = " << algorithms[i]->get_name() << endl;
+                        DBG_mem("after_run");
                     }
 
 
@@ -741,6 +802,16 @@ int main(){
                         delete algo;
                     }
                     algorithms.clear();
+                    cerr << "[CKPT] === ROUND " << r << " END ===" << endl;
+                    DBG_mem("round_end");
+                  } catch(const std::bad_alloc& e) {
+                      cerr << "[FATAL] std::bad_alloc in round r=" << r << " : " << e.what() << endl;
+                      DBG_mem("round_bad_alloc");
+                      throw;
+                  } catch(const std::exception& e) {
+                      cerr << "[FATAL] std::exception in round r=" << r << " : " << e.what() << endl;
+                      throw;
+                  }
 
                 }
 
