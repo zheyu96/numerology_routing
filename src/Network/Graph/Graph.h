@@ -19,10 +19,10 @@ class Graph {
     double fidelity_gain;
     double swapping_succ_prob;
     double pure_fidelity;
+    double actual_req_cnt=0;
     double avg_entangle_prob;
     int usage;
     double succ_request_cnt;
-    int actual_req_cnt;
     double delta_P;
     vector<Node> nodes;
 

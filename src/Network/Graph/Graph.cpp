@@ -384,7 +384,7 @@ void Graph::reserve_shape(Shape shape, bool enable_purification /*= false*/) {
     fidelity_gain += (Purification::fidelity_to_werner(shape_fidelity) * pr);
     pure_fidelity += shape_fidelity;
     succ_request_cnt += pr;
-    actual_req_cnt +=1;
+    actual_req_cnt+=1;
     for(int i = 0; i < (int)boundary.size(); i++) {
         if(shape_fidelity < boundary[i]) {
             cnt[i] = cnt[i] + 1;

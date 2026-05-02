@@ -718,7 +718,7 @@ int main(){
                     }
 
 
-                    //#pragma omp parallel for schedule(dynamic)
+                    #pragma omp parallel for schedule(dynamic)
                     for(int i = 0; i < (int)algorithms.size(); i++) {
                         algorithms[i]->run();
                     }
