@@ -159,6 +159,25 @@ WernerAlgo3::ZLabel WernerAlgo3::gen_leaf_label(int s,int e,int st,int tlen,int 
 void WernerAlgo3::run_dp_in_t(const Path& path, const DPParam& dpp,int t) {
     const int T = graph.get_time_limit();
     const int n = (int)path.size();
+    const size_t MAX_CANDIDATES_PER_CELL = 1000;
+    const size_t MAX_LABELS_PER_CELL = 100;
+    auto trim_cell = [&](vector<ZLabel>& labels) {
+        if(labels.size() <= MAX_LABELS_PER_CELL) return;
+        nth_element(labels.begin(), labels.begin() + MAX_LABELS_PER_CELL, labels.end(),
+            [](const ZLabel& x, const ZLabel& y) {
+                if(x.B != y.B) return x.B < y.B;
+                return x.Z < y.Z;
+            });
+        labels.resize(MAX_LABELS_PER_CELL);
+        bucket_by_ZP(labels);
+        if(labels.size() > MAX_LABELS_PER_CELL) {
+            sort(labels.begin(), labels.end(), [](const ZLabel& x, const ZLabel& y) {
+                if(x.B != y.B) return x.B < y.B;
+                return x.Z < y.Z;
+            });
+            labels.resize(MAX_LABELS_PER_CELL);
+        }
+    };
     for(int a=0;a<n-1;a++)
         for(int b=a+1;b<n;b++){
             int s=path[a],e=path[b];
@@ -173,8 +192,8 @@ void WernerAlgo3::run_dp_in_t(const Path& path, const DPParam& dpp,int t) {
                     }
                 }
             }
-            auto pre=DP_table[t-1][a][b];
-            for(int p_id=0;p_id<pre.size();p_id++){
+            const auto& pre=DP_table[t-1][a][b];
+            for(int p_id=0;p_id<pre.size() && cand.size() < MAX_CANDIDATES_PER_CELL;p_id++){
                 double Zp=pre[p_id].Z+dpp.eta;
                 if(Zp<=dpp.Zhat){
                     double Bp=pre[p_id].B+beta[s][t]+beta[e][t];
@@ -184,11 +203,13 @@ void WernerAlgo3::run_dp_in_t(const Path& path, const DPParam& dpp,int t) {
                 }
             }
             for(int k=a+1;k<b;k++){
-                auto L1=DP_table[t-1][a][k],L2=DP_table[t-1][k][b];
+                const auto& L1=DP_table[t-1][a][k];
+                const auto& L2=DP_table[t-1][k][b];
                 if(L1.size()==0||L2.size()==0) continue;
-                for(int lid=0;lid<L1.size();lid++)
-                    for(int rid=0;rid<L2.size();rid++){
-                        auto left_seg=L1[lid],right_seg=L2[rid];
+                for(int lid=0;lid<L1.size() && cand.size() < MAX_CANDIDATES_PER_CELL;lid++)
+                    for(int rid=0;rid<L2.size() && cand.size() < MAX_CANDIDATES_PER_CELL;rid++){
+                        const auto& left_seg=L1[lid];
+                        const auto& right_seg=L2[rid];
                         double Zp=sqrt((left_seg.Z+dpp.eta)*(left_seg.Z+dpp.eta)+
                                         (right_seg.Z+dpp.eta)*(right_seg.Z+dpp.eta));
                         double swap_prob=log(graph.get_node_swap_prob(path[k]));
@@ -206,11 +227,13 @@ void WernerAlgo3::run_dp_in_t(const Path& path, const DPParam& dpp,int t) {
                     non_leaf.push_back(L);
             }
             bucket_by_ZP(non_leaf);
+            trim_cell(non_leaf);
             cand.erase(
                 remove_if(cand.begin(), cand.end(),
                         [](const ZLabel& L){ return L.op != Op::LEAF; }),
                 cand.end());
             cand.insert(cand.end(), non_leaf.begin(), non_leaf.end());
+            trim_cell(cand);
             DP_table[t][a][b] = cand;
         }
 }
