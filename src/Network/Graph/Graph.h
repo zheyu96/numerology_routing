@@ -22,7 +22,7 @@ class Graph {
     double avg_entangle_prob;
     int usage;
     double succ_request_cnt;
-    int actual_req_cnt
+    int actual_req_cnt;
     double delta_P;
     vector<Node> nodes;
 
