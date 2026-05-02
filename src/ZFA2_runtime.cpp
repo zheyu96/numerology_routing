@@ -95,10 +95,6 @@ int main() {
     system("mkdir -p ../data/ans");
     system("mkdir -p ../data/log");
     system("mkdir -p ../data/input");
-    {
-        ofstream ofs(file_path + "ans/Greedy_ZFA2_actual_succ_request_cnt.txt", ios::out);
-        ofs << "X_name value actual_succ_request_cnt" << endl;
-    }
 
     map<string, double> default_setting;
     default_setting["num_nodes"] = 100;
@@ -180,7 +176,6 @@ int main() {
                 {
                     result[r][algo_name]["fidelity_gain"] = algo->get_res("fidelity_gain");
                     result[r][algo_name]["succ_request_cnt"] = algo->get_res("succ_request_cnt");
-                    result[r][algo_name]["actual_succ_request_cnt"] = algo->get_res("actual_succ_request_cnt");
                     result[r][algo_name]["runtime"] = elapsed.count();
                 }
                 delete algo;
@@ -201,12 +196,6 @@ int main() {
                 << result[best_round][target_algo]["succ_request_cnt"] << " "
                 << result[best_round][target_algo]["runtime"] << endl;
             ofs.close();
-
-            ofstream actual_ofs(file_path + "ans/Greedy_ZFA2_actual_succ_request_cnt.txt", ios::app);
-            actual_ofs << X_name << " "
-                       << change_value << " "
-                       << result[best_round][target_algo]["actual_succ_request_cnt"] << endl;
-            actual_ofs.close();
         }
     }
     return 0;

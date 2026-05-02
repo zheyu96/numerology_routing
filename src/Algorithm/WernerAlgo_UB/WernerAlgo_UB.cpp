@@ -415,7 +415,6 @@ void WernerAlgo_UB::run() {
             if(fidelity + EPS > graph.get_fidelity_threshold()) {
                 res["fidelity_gain"] += P.second * (fidelity * graph.path_Pr(shape));
                 res["succ_request_cnt"] += P.second * (1 + 3 * graph.path_Pr(shape)) / 4;
-                res["actual_succ_request_cnt"] += P.second;
             }
 
             for(auto id_mem : P.first) {
@@ -433,7 +432,6 @@ void WernerAlgo_UB::run() {
     }
 
     res["succ_request_cnt"] = max(res["succ_request_cnt"] / max_xim_sum, (double)graph.get_succ_request_cnt() * 1.1001);
-    res["actual_succ_request_cnt"] = max(res["actual_succ_request_cnt"] / max_xim_sum, (double)graph.get_actual_succ_request_cnt());
     res["fidelity_gain"] = max(res["fidelity_gain"] / max_xim_sum, (double)graph.get_fidelity_gain() * 1.1001);
     // res["fidelity_gain"] = res["succ_request_cnt"];
     res["utilization"] = (usage / ((double)memory_total_LP * (double)graph.get_time_limit())) / max_xim_sum;

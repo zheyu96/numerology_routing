@@ -368,7 +368,7 @@ int main(){
 
     map<string, double> default_setting;
     default_setting["num_nodes"] = 100;
-    default_setting["request_cnt"] = 120;
+    default_setting["request_cnt"] = 80;
     default_setting["entangle_lambda"] = 0.045;
     default_setting["time_limit"] = 13;
     // avg_memory 必須夠緊張，讓演算法無法服務所有可行 request → 不同策略做不同取捨
@@ -392,7 +392,7 @@ int main(){
     default_setting["hop_count"]=3;
     default_setting["delta_P"]=0.01;
     map<string, vector<double>> change_parameter;
-    change_parameter["request_cnt"] = {80,100,120,140,160};
+    change_parameter["request_cnt"] = {80,90,100,110,120,130,140,150,160,170};
     change_parameter["num_nodes"] = {30, 40, 50, 60, 70};
     change_parameter["min_fidelity"] = {0.6, 0.7, 0.8, 0.9, 0.95};
     change_parameter["avg_memory"] = {4, 6, 8, 10, 12, 16, 20};
@@ -409,7 +409,7 @@ int main(){
     //change_parameter["Zmin"]={0.028,0.150,0.272,0.394,0.518};
     change_parameter["bucket_eps"]={0.00001,0.0001,0.001,0.01,0.1};
     change_parameter["time_eta"]={0.00001,0.0001,0.001,0.01,0.1};
-    int round = 20;
+    int round = 5;
     vector<vector<SDpair>> default_requests(round);
     #pragma omp parallel for
     for(int r = 0; r < round; r++) {
@@ -563,8 +563,7 @@ int main(){
     //vector<string> X_names = {"request_cnt"};
     vector<string> X_names = { "request_cnt", "time_limit", "tao",  "fidelity_threshold" , "avg_memory","hop_count","swap_prob" };
     //vector<string> X_names = {"Zmin","bucket_eps","time_eta"};
-    const string actual_succ_metric = "actual_succ_request_cnt";
-    vector<string> Y_names = {"fidelity_gain", "succ_request_cnt", actual_succ_metric};
+    vector<string> Y_names = {"fidelity_gain", "succ_request_cnt","actual_req_cnt"};
     vector<string> algo_names = {"ZFA_UB","ZFA2","MyAlgo1", "MyAlgo3"};
     // init result
 
@@ -574,15 +573,6 @@ int main(){
     /* path_methods.emplace_back(new QCAST());
     path_methods.emplace_back(new REPS()); */
     for(PathMethod *path_method : path_methods) {
-        {
-            string filename = "ans/" + path_method->get_name() + "_actual_succ_request_cnt.txt";
-            ofstream ofs(file_path + filename, ios::out);
-            ofs << "X_name value";
-            for(const string& algo_name : algo_names) {
-                ofs << ' ' << algo_name;
-            }
-            ofs << endl;
-        }
 
         for(string X_name : X_names) {
             for(string Y_name : Y_names){
@@ -728,6 +718,7 @@ int main(){
                     }
 
 
+                    #pragma omp parallel for schedule(dynamic)
                     for(int i = 0; i < (int)algorithms.size(); i++) {
                         algorithms[i]->run();
                     }
@@ -738,7 +729,6 @@ int main(){
                         for(string Y_name : Y_names) {
                             result[r][algorithms[i]->get_name()][Y_name] = algorithms[i]->get_res(Y_name);
                         }
-                        result[r][algorithms[i]->get_name()][actual_succ_metric] = algorithms[i]->get_res(actual_succ_metric);
                     }
 
                     now = time(0);
@@ -772,7 +762,6 @@ int main(){
                     string filename = "ans/" + path_method->get_name() + "_" + X_name + "_" + Y_name + ".ans";
                     ofstream ofs;
                     ofs.open(file_path + filename, ios::app);
-                    ofs.precision(12);
                     ofs << change_value << ' ';
 
                     for(string algo_name : algo_names){
@@ -783,21 +772,6 @@ int main(){
                     }
                     ofs << endl;
                     ofs.close();
-                }
-
-                {
-                    string filename = "ans/" + path_method->get_name() + "_actual_succ_request_cnt.txt";
-                    ofstream ofs(file_path + filename, ios::app);
-                    ofs.precision(12);
-                    ofs << X_name << ' ' << change_value << ' ';
-                    for(string algo_name : algo_names) {
-                        double sum = 0;
-                        for(int r = 0; r < round; r++) {
-                            sum += result[r][algo_name][actual_succ_metric];
-                        }
-                        ofs << sum / round << ' ';
-                    }
-                    ofs << endl;
                 }
             }
         }

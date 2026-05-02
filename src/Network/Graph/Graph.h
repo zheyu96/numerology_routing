@@ -22,7 +22,7 @@ class Graph {
     double avg_entangle_prob;
     int usage;
     double succ_request_cnt;
-    int actual_succ_request_cnt;
+    int actual_req_cnt
     double delta_P;
     vector<Node> nodes;
 
@@ -41,7 +41,6 @@ public:
     int get_num_nodes();
     int get_time_limit();
     double get_succ_request_cnt();
-    int get_actual_succ_request_cnt();
     int get_memory_total();
     int get_usage();
     double get_Zmin();

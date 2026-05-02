@@ -11,7 +11,7 @@ int rnd(int lower_bound, int upper_bound) {
 }
 
 Graph::Graph(string filename, int _time_limit, double _swap_prob, int avg_memory, double min_fidelity, double max_fidelity, double _fidelity_threshold, double _A, double _B, double _n, double _T, double _tao,double _Zmin,double _bucket_eps,double _time_eta,double _delta_P):
-    time_limit(_time_limit), fidelity_threshold(_fidelity_threshold), A(_A), B(_B), n(_n), T(_T), tao(_tao),Zmin(_Zmin),bucket_eps(_bucket_eps),time_eta(_time_eta), fidelity_gain(0), usage(0), succ_request_cnt(0), actual_succ_request_cnt(0), delta_P(_delta_P) {
+    time_limit(_time_limit), fidelity_threshold(_fidelity_threshold), A(_A), B(_B), n(_n), T(_T), tao(_tao),Zmin(_Zmin),bucket_eps(_bucket_eps),time_eta(_time_eta),delta_P(_delta_P), fidelity_gain(0), usage(0), succ_request_cnt(0) {
     // geneator an adj list
 
     ifstream graph_file(filename);
@@ -91,7 +91,6 @@ double Graph::get_Zmin(){ return Zmin; }
 double Graph::get_bucket_eps(){ return bucket_eps; }
 double Graph::get_time_eta(){ return time_eta; }
 double Graph::get_succ_request_cnt() { return succ_request_cnt;}
-int Graph::get_actual_succ_request_cnt() { return actual_succ_request_cnt; }
 int Graph::get_usage() { return usage; }
 
 const vector<double>& Graph::get_boundary() const { return boundary; }
@@ -319,7 +318,6 @@ void Graph::reserve_shape_ASAP(Shape shape, bool enable_purification) {
         fidelity_gain += (Purification::fidelity_to_werner(shape_fidelity) * pr);
         pure_fidelity += shape_fidelity;
         succ_request_cnt += pr;
-        actual_succ_request_cnt++;
     }
 
     for(int i = 0; i < (int)boundary.size(); i++) {
@@ -386,8 +384,7 @@ void Graph::reserve_shape(Shape shape, bool enable_purification /*= false*/) {
     fidelity_gain += (Purification::fidelity_to_werner(shape_fidelity) * pr);
     pure_fidelity += shape_fidelity;
     succ_request_cnt += pr;
-    actual_succ_request_cnt++;
-
+    actual_req_cnt +=1;
     for(int i = 0; i < (int)boundary.size(); i++) {
         if(shape_fidelity < boundary[i]) {
             cnt[i] = cnt[i] + 1;
@@ -444,7 +441,6 @@ void Graph::reserve_shape2(Shape shape, bool enable_purification) {
         fidelity_gain += (Purification::fidelity_to_werner(shape_fidelity) * pr);
         pure_fidelity += shape_fidelity;
         succ_request_cnt += pr;
-        actual_succ_request_cnt++;
     }
 
     for(int i = 0; i < (int)boundary.size(); i++) {

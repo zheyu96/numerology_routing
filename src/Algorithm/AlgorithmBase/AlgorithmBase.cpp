@@ -67,7 +67,6 @@ double AlgorithmBase::pass_tao(double F) {
 void AlgorithmBase::update_res() {
     res["fidelity_gain"] = graph.get_fidelity_gain();
     res["succ_request_cnt"] = graph.get_succ_request_cnt();
-    res["actual_succ_request_cnt"] = graph.get_actual_succ_request_cnt();
     res["utilization"] = (double)graph.get_usage() / (double)memory_total;
     res["pure_fidelity"] = graph.get_pure_fidelity();
     cdf.clear();
