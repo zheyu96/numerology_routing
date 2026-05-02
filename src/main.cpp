@@ -563,8 +563,8 @@ int main(){
     //vector<string> X_names = {"request_cnt"};
     vector<string> X_names = { "request_cnt", "time_limit", "tao",  "fidelity_threshold" , "avg_memory","hop_count","swap_prob" };
     //vector<string> X_names = {"Zmin","bucket_eps","time_eta"};
-    vector<string> Y_names = {"fidelity_gain", "succ_request_cnt"};
     const string actual_succ_metric = "actual_succ_request_cnt";
+    vector<string> Y_names = {"fidelity_gain", "succ_request_cnt", actual_succ_metric};
     vector<string> algo_names = {"ZFA_UB","ZFA2","MyAlgo1", "MyAlgo3"};
     // init result
 
@@ -773,6 +773,7 @@ int main(){
                     string filename = "ans/" + path_method->get_name() + "_" + X_name + "_" + Y_name + ".ans";
                     ofstream ofs;
                     ofs.open(file_path + filename, ios::app);
+                    ofs.precision(12);
                     ofs << change_value << ' ';
 
                     for(string algo_name : algo_names){
@@ -788,6 +789,7 @@ int main(){
                 {
                     string filename = "ans/" + path_method->get_name() + "_actual_succ_request_cnt.txt";
                     ofstream ofs(file_path + filename, ios::app);
+                    ofs.precision(12);
                     ofs << X_name << ' ' << change_value << ' ';
                     for(string algo_name : algo_names) {
                         double sum = 0;
