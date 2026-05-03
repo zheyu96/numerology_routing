@@ -10,8 +10,10 @@ int rnd(int lower_bound, int upper_bound) {
     return unif(generator) % (upper_bound - lower_bound + 1) + lower_bound;
 }
 
-Graph::Graph(string filename, int _time_limit, double _swap_prob, int avg_memory, double min_fidelity, double max_fidelity, double _fidelity_threshold, double _A, double _B, double _n, double _T, double _tao,double _Zmin,double _bucket_eps,double _time_eta,double _delta_P):
-    time_limit(_time_limit), fidelity_threshold(_fidelity_threshold), A(_A), B(_B), n(_n), T(_T), tao(_tao),Zmin(_Zmin),bucket_eps(_bucket_eps),time_eta(_time_eta),delta_P(_delta_P), fidelity_gain(0), usage(0), succ_request_cnt(0) {
+Graph::Graph(string filename, int _time_limit, double _swap_prob, int avg_memory, double min_fidelity, double max_fidelity, double _fidelity_threshold, double _A, double _B, double _n, double _T, double _tao,double _Zmin,double _bucket_eps,double _time_eta,double _delta_P,double _entangle_lambda,double _entangle_time,double _Gamma):
+    time_limit(_time_limit), fidelity_threshold(_fidelity_threshold), A(_A), B(_B), n(_n), T(_T), tao(_tao),
+    entangle_lambda(_entangle_lambda), entangle_time(_entangle_time), Gamma(_Gamma),
+    Zmin(_Zmin),bucket_eps(_bucket_eps),time_eta(_time_eta),delta_P(_delta_P), fidelity_gain(0), usage(0), succ_request_cnt(0) {
     // geneator an adj list
 
     ifstream graph_file(filename);
@@ -38,13 +40,29 @@ Graph::Graph(string filename, int _time_limit, double _swap_prob, int avg_memory
     int num_edges;
     graph_file >> num_edges;
     avg_entangle_prob = 0;
+    // Paper Eq. (entangling): xi = floor(delta / tau_att), where delta = tao here.
+    int xi = (entangle_time > 0.0) ? (int)floor(tao / entangle_time) : 1;
+    if(xi < 1) xi = 1;
     for(int i = 0; i < num_edges; i++) {
         int v, u;
-        double f_init,entangle_prob;
-        graph_file >> v >> u >> entangle_prob;
-        f_init=entangle_prob;
+        double f_raw,entangle_prob;
+        graph_file >> v >> u >> f_raw;
         assert(v != u);
-        f_init = (f_init) * (max_fidelity - min_fidelity) + min_fidelity;
+        // The third field in the input is interpreted as a fidelity ratio (paper Sec. III-A).
+        double f_init = f_raw * (max_fidelity - min_fidelity) + min_fidelity;
+
+        // Paper III-A1: w_e = (4F_e - 1)/3 = exp(-Gamma * l)  =>  l = -ln(w_e) / Gamma.
+        double w_e = (4.0 * f_init - 1.0) / 3.0;
+        double l_uv;
+        if(w_e <= 0.0) {
+            l_uv = 1e9;                       // F_e in [1/4, ...]; clamp degenerate case.
+        } else {
+            l_uv = -log(w_e) / Gamma;
+        }
+        // Paper III-A2: Pr(u,v) = 1 - (1 - exp(-lambda * l))^xi.
+        double one_shot = exp(-entangle_lambda * l_uv);
+        entangle_prob = 1.0 - pow(1.0 - one_shot, xi);
+
         adj_list[v].push_back(u);
         adj_list[u].push_back(v);
         F_init[{v, u}] = f_init;

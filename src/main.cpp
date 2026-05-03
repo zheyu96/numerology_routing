@@ -458,7 +458,7 @@ int main(){
             cerr<<"error:\tsystem proccess python error"<<endl;
             exit(1);
         }
-        Graph graph(filename, time_limit, swap_prob, avg_memory, min_fidelity, max_fidelity, fidelity_threshold, A, B, n, T, tao,Zmin,bucket_eps,time_eta,input_parameter["delta_P"]);
+        Graph graph(filename, time_limit, swap_prob, avg_memory, min_fidelity, max_fidelity, fidelity_threshold, A, B, n, T, tao,Zmin,bucket_eps,time_eta,input_parameter["delta_P"],input_parameter["entangle_lambda"],input_parameter["entangle_time"]);
         // === 混合生成 4 類 request (threshold=0.8) ===
         // 設計原則：ZFA2 靠 purification 明顯領先，但非 purify 演算法仍有可通過的 request
         //
@@ -654,7 +654,7 @@ int main(){
 
                     double A = 0.25, B = 0.75, tao = input_parameter["tao"], T = 10, n = 2;
                     DBG_HERE("before Graph ctor");
-                    Graph graph(filename, time_limit, swap_prob, avg_memory, min_fidelity, max_fidelity, fidelity_threshold, A, B, n, T, tao,Zmin,bucket_eps,time_eta,input_parameter["delta_P"]);
+                    Graph graph(filename, time_limit, swap_prob, avg_memory, min_fidelity, max_fidelity, fidelity_threshold, A, B, n, T, tao,Zmin,bucket_eps,time_eta,input_parameter["delta_P"],input_parameter["entangle_lambda"],input_parameter["entangle_time"]);
                     DBG_HERE("after Graph ctor");
                     DBG_mem("after_graph");
 

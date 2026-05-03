@@ -15,6 +15,12 @@ class Graph {
     int time_limit;
     double fidelity_threshold;
     double A, B, n, T, tao;
+    // Paper III-A: distance-dependent decoherence/entangling.
+    //   F_e(u,v) = 1/4 + 3/4 * exp(-Gamma * l(u,v))
+    //   Pr(u,v)  = 1 - (1 - exp(-lambda * l(u,v)))^xi,  xi = floor(tao / entangle_time)
+    double entangle_lambda;   // lambda  (paper, fiber-loss)
+    double entangle_time;     // tau_att (paper, per-attempt time)
+    double Gamma;             // Gamma   (paper, decoherence per km)
     double Zmin,bucket_eps,time_eta;
     double fidelity_gain;
     double swapping_succ_prob;
@@ -32,7 +38,7 @@ class Graph {
     string file_name;
     Path get_path(int from, int to);
 public:
-    Graph(string filename, int _time_limit, double _swap_prob, int avg_memory, double min_fidelity, double max_fidelity, double _fidelity_threshold, double _A, double _B, double _n, double _T, double _tao,double _Zmin,double _bucket_eps,double _time_eta,double _delta_P);
+    Graph(string filename, int _time_limit, double _swap_prob, int avg_memory, double min_fidelity, double max_fidelity, double _fidelity_threshold, double _A, double _B, double _n, double _T, double _tao,double _Zmin,double _bucket_eps,double _time_eta,double _delta_P=0.0,double _entangle_lambda=0.045,double _entangle_time=0.00025,double _Gamma=0.0044);
     Graph() {}
     ~Graph();
     int get_node_memory_at(int node_id, int t);
