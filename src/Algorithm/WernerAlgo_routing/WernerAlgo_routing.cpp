@@ -2,6 +2,7 @@
 #include "WernerAlgo_routing.h"
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <cmath>
 #include <climits>
 
@@ -524,6 +525,15 @@ void WernerAlgo_routing::run() {
             vector<LinkPurifyDetail> link_details;
         };
         vector<PurifyLogEntry> purify_log_entries;
+        // 所有「被接受」的 request 的 routing 路徑（不限有無 purify）
+        struct AcceptedPathEntry {
+            int req_idx, src, dst, hop;
+            bool has_purify;
+            double fid, prob;
+            string path_str;  // 節點序列 + 每段 purify rounds
+            string mem_str;   // 每個節點的 memory 區間（可看出 swap 樹）
+        };
+        vector<AcceptedPathEntry> accepted_path_entries;
 
         for(pair<double, Shape_vector> P : shapes) {
             // 用 purify_rounds 構造 Shape（若有的話）
@@ -624,20 +634,37 @@ void WernerAlgo_routing::run() {
                 }
                 finished.push_back(request_index);
 
-                // [新增] 印出 routing 出來的路徑（node 序列 + 每段 purify rounds）
+                // [新增] 記錄 routing 出來的路徑（node 序列 + 每段 purify rounds），
+                // 同時印到 stderr 與收集到 accepted_path_entries 供寫檔
                 {
                     Shape_vector sv_path = shape.get_node_mem_range();
                     vector<int> pr_path = shape.get_link_purify_rounds();
-                    cerr << "\033[1;36m" << "[" << algorithm_name << " path] req#" << request_index
-                         << " (" << sv_path.front().first << "->" << sv_path.back().first << "): ";
+                    ostringstream path_ss, mem_ss;
                     for(size_t i = 0; i < sv_path.size(); ++i) {
-                        cerr << sv_path[i].first;
+                        path_ss << sv_path[i].first;
                         if(i + 1 < sv_path.size()) {
                             int r = (i < pr_path.size()) ? pr_path[i] : 0;
-                            cerr << " --(pur=" << r << ")--> ";
+                            path_ss << " --(pur=" << r << ")--> ";
                         }
+                        mem_ss << sv_path[i].first;
+                        for(const auto& rng : sv_path[i].second)
+                            mem_ss << "[" << rng.first << "," << rng.second << "]";
+                        if(i + 1 < sv_path.size()) mem_ss << " ";
                     }
-                    cerr << " | hop=" << (sv_path.size() - 1) << "\033[0m" << endl;
+                    cerr << "\033[1;36m" << "[" << algorithm_name << " path] req#" << request_index
+                         << " (" << sv_path.front().first << "->" << sv_path.back().first << "): "
+                         << path_ss.str()
+                         << " | hop=" << (sv_path.size() - 1) << "\033[0m" << endl;
+
+                    double fid_acc = shape.get_fidelity(A, B, n, T, tao, graph.get_F_init(), true);
+                    double prob_acc = has_purify ? graph.path_Pr_purify(shape) : graph.path_Pr(shape);
+                    accepted_path_entries.push_back({
+                        request_index,
+                        sv_path.front().first, sv_path.back().first,
+                        (int)sv_path.size() - 1,
+                        has_purify, fid_acc, prob_acc,
+                        path_ss.str(), mem_ss.str()
+                    });
                 }
 
                 // [新增] 收集 purification 前後的 fidelity 與 prob 統計（僅記錄有 purify 的）
@@ -708,7 +735,22 @@ void WernerAlgo_routing::run() {
                 if (!experiment_label.empty()) {
                     log_file << "=== Experiment: " << experiment_label << " ===" << endl;
                 }
-                log_file << "--- Accepted Requests (total: " << purify_log_entries.size() << ") ---" << endl;
+                // 所有被接受的 routing 路徑（含無 purify 的）
+                // mem 行：每個節點的 memory 佔用區間，interior 節點兩段區間的
+                // 結束時間即該節點做 swap 的時刻，可據此還原 swap 樹
+                log_file << "--- Accepted Paths (total: " << accepted_path_entries.size() << ") ---" << endl;
+                for (auto& e : accepted_path_entries) {
+                    log_file << "  req#" << e.req_idx
+                             << " SD=(" << e.src << "," << e.dst << ")"
+                             << " hop=" << e.hop
+                             << " purified=" << (e.has_purify ? "YES" : "NO")
+                             << " fid=" << e.fid
+                             << " prob=" << e.prob << endl;
+                    log_file << "    path: " << e.path_str << endl;
+                    log_file << "    mem : " << e.mem_str << endl;
+                }
+                // 以下僅列「有做 purification」的 request 的前後比較
+                log_file << "--- Purification Before/After (purified only, total: " << purify_log_entries.size() << ") ---" << endl;
                 for (auto& e : purify_log_entries) {
                     log_file << "  SD=(" << e.src << "," << e.dst << ") hop=" << e.hop
                              << " purified=" << (e.has_purify ? "YES" : "NO") << endl;
