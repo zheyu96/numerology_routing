@@ -6,8 +6,10 @@ dependency = Network/Node/Node.o Network/Shape/Shape.o Network/Graph/Graph.o Alg
 algorithm = Algorithm/MyAlgo1/MyAlgo1.o Algorithm/MyAlgo2/MyAlgo2.o Algorithm/MyAlgo3/MyAlgo3.o \
             Algorithm/MyAlgo4/MyAlgo4.o Algorithm/MyAlgo5/MyAlgo5.o Algorithm/MyAlgo6/MyAlgo6.o \
             Algorithm/WernerAlgo/WernerAlgo.o Algorithm/WernerAlgo2/WernerAlgo2.o \
+            Algorithm/WernerAlgo_routing/WernerAlgo_routing.o \
             Algorithm/WernerAlgo3/WernerAlgo3.o \
-            Algorithm/WernerAlgo_UB/WernerAlgo_UB.o
+            Algorithm/WernerAlgo_UB/WernerAlgo_UB.o \
+            Algorithm/GreedySP/GreedySP.o
 
 # 時間量測專用演算法物件
 algorithm_zfa = Algorithm/WernerAlgo_time/WernerAlgo_time.o 
@@ -48,6 +50,7 @@ runtime: runtime.cpp $(dependency) $(algorithm2) $(routing)
 a.out: main.cpp $(dependency) $(algorithm) $(routing)
 	g++ -fopenmp $(gcc_flag) main.cpp $(dependency) $(algorithm) $(routing) $(gurobi_flag) -o a.out
 	> ../data/log/ZFA2_Purification_Stats.txt
+	> ../data/log/ZFA_routing_Purification_Stats.txt
 	./a.out
 
 # --- 各個物件檔案 (Object Files) 編譯規則 ---
@@ -84,10 +87,14 @@ Algorithm/WernerAlgo/WernerAlgo.o: Algorithm/WernerAlgo/WernerAlgo.cpp Algorithm
 	g++ -c $(gcc_flag) Algorithm/WernerAlgo/WernerAlgo.cpp -o Algorithm/WernerAlgo/WernerAlgo.o
 Algorithm/WernerAlgo2/WernerAlgo2.o: Algorithm/WernerAlgo2/WernerAlgo2.cpp Algorithm/WernerAlgo2/WernerAlgo2.h Network/Purification/Purification.h config.h
 	g++ -c $(gcc_flag) Algorithm/WernerAlgo2/WernerAlgo2.cpp -o Algorithm/WernerAlgo2/WernerAlgo2.o
+Algorithm/WernerAlgo_routing/WernerAlgo_routing.o: Algorithm/WernerAlgo_routing/WernerAlgo_routing.cpp Algorithm/WernerAlgo_routing/WernerAlgo_routing.h Network/Purification/Purification.h config.h
+	g++ -c $(gcc_flag) Algorithm/WernerAlgo_routing/WernerAlgo_routing.cpp -o Algorithm/WernerAlgo_routing/WernerAlgo_routing.o
 Algorithm/WernerAlgo3/WernerAlgo3.o: Algorithm/WernerAlgo3/WernerAlgo3.cpp Algorithm/WernerAlgo3/WernerAlgo3.h config.h
 	g++ -c $(gcc_flag) Algorithm/WernerAlgo3/WernerAlgo3.cpp -o Algorithm/WernerAlgo3/WernerAlgo3.o
 Algorithm/WernerAlgo_UB/WernerAlgo_UB.o: Algorithm/WernerAlgo_UB/WernerAlgo_UB.cpp Algorithm/WernerAlgo_UB/WernerAlgo_UB.h config.h
 	g++ -c $(gcc_flag) Algorithm/WernerAlgo_UB/WernerAlgo_UB.cpp -o Algorithm/WernerAlgo_UB/WernerAlgo_UB.o
+Algorithm/GreedySP/GreedySP.o: Algorithm/GreedySP/GreedySP.cpp Algorithm/GreedySP/GreedySP.h Network/Purification/Purification.h config.h
+	g++ -c $(gcc_flag) Algorithm/GreedySP/GreedySP.cpp -o Algorithm/GreedySP/GreedySP.o
 
 # 時間量測版本演算法編譯規則
 Algorithm/WernerAlgo_time/WernerAlgo_time.o: Algorithm/WernerAlgo_time/WernerAlgo_time.cpp Algorithm/WernerAlgo_time/WernerAlgo_time.h config.h

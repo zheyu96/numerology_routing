@@ -11,14 +11,18 @@
 #include "Algorithm/MyAlgo4/MyAlgo4.h"
 #include "Algorithm/MyAlgo5/MyAlgo5.h"
 #include "Algorithm/MyAlgo6/MyAlgo6.h"
-#include "Algorithm/WernerAlgo/WernerAlgo.h"
-#include "Algorithm/WernerAlgo2/WernerAlgo2.h"
-#include "Algorithm/WernerAlgo3/WernerAlgo3.h"
-#include "Algorithm/WernerAlgo_UB/WernerAlgo_UB.h"
+#include "Algorithm/GreedySP/GreedySP.h"
+// PathMethod 系列必須放在 Werner 系列之前：Werner*.h 內有
+// `#define double long double`，會污染其後 include 的所有 header
 #include "Network/PathMethod/PathMethodBase/PathMethod.h"
 #include "Network/PathMethod/Greedy/Greedy.h"
 #include "Network/PathMethod/QCAST/QCAST.h"
 #include "Network/PathMethod/REPS/REPS.h"
+#include "Algorithm/WernerAlgo/WernerAlgo.h"
+#include "Algorithm/WernerAlgo2/WernerAlgo2.h"
+#include "Algorithm/WernerAlgo_routing/WernerAlgo_routing.h"
+#include "Algorithm/WernerAlgo3/WernerAlgo3.h"
+#include "Algorithm/WernerAlgo_UB/WernerAlgo_UB.h"
 
 using namespace std;
 
@@ -581,7 +585,7 @@ int main(){
     vector<string> X_names = { "request_cnt", "time_limit", "tao",  "fidelity_threshold" , "avg_memory","hop_count","swap_prob" };
     //vector<string> X_names = {"Zmin","bucket_eps","time_eta"};
     vector<string> Y_names = {"fidelity_gain", "succ_request_cnt","actual_req_cnt"};
-    vector<string> algo_names = {"ZFA_UB","ZFA2","MyAlgo1", "MyAlgo3"};
+    vector<string> algo_names = {"ZFA_UB","ZFA2","ZFA_routing","MyAlgo1", "MyAlgo3","SP_skewed","SP_balanced"};
     // init result
 
 
@@ -753,6 +757,15 @@ int main(){
                         zfa2->set_experiment_label(exp_label);
                         algorithms.emplace_back(zfa2);
                     }
+                    {
+                        DBG_HERE("before new WernerAlgo_routing");
+                        auto* zfa_routing = new WernerAlgo_routing(graph,requests,paths);
+                        DBG_HERE("after new WernerAlgo_routing");
+                        DBG_mem("after_new_WernerAlgo_routing");
+                        string exp_label = X_name + "=" + to_string(change_value) + " Round=" + to_string(r);
+                        zfa_routing->set_experiment_label(exp_label);
+                        algorithms.emplace_back(zfa_routing);
+                    }
                     if(X_name!="Zmin"&&X_name!="bucket_eps"&&X_name!="time_eta"){
                         DBG_HERE("before new MyAlgo1");
                         algorithms.emplace_back(new MyAlgo1(graph, requests, paths));
@@ -760,6 +773,9 @@ int main(){
                         DBG_HERE("before new MyAlgo3");
                         algorithms.emplace_back(new MyAlgo3(graph, requests, paths));
                         DBG_HERE("after new MyAlgo3");
+                        // SP baselines：最短路徑 + 固定 swap 排程（skewed / balanced）
+                        algorithms.emplace_back(new GreedySP(graph, requests, paths, GreedySP::SwapMode::SKEWED));
+                        algorithms.emplace_back(new GreedySP(graph, requests, paths, GreedySP::SwapMode::BALANCED));
                         DBG_mem("after_all_algos_ctor");
                     }
 

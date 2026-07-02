@@ -1,5 +1,5 @@
-#ifndef __WERNER_ALGO2_H
-#define __WERNER_ALGO2_H
+#ifndef __WERNER_ALGO_ROUTING_H
+#define __WERNER_ALGO_ROUTING_H
 
 #include "../AlgorithmBase/AlgorithmBase.h"
 #include "../../Network/Graph/Graph.h"
@@ -25,10 +25,10 @@ using namespace std;
  * 1) 這份碼假設 AlgorithmBase / Graph / Shape / DPParam / Path / SDpair / INF 存在
  * 2) 若你的名稱不同，請在此檔調整 include 與型別別名
  */
-class WernerAlgo2 : public AlgorithmBase {
+class WernerAlgo_routing : public AlgorithmBase {
 public:
     #define double long double
-    WernerAlgo2(const Graph& graph,
+    WernerAlgo_routing(const Graph& graph,
                const vector<pair<int,int>>& requests,
                const map<SDpair, vector<Path>>& paths,
                double epsilon = 0.5,
@@ -49,7 +49,8 @@ private:
         int a = -1, b = -1, t = -1, k = -1; // 狀態索引與輔助
         int left_id=-1,right_id=-1,parent_id=-1;//左邊第幾個cand和右邊第幾個cand,祖先是第幾個cand
         Op op = Op::LEAF;
-        vector<int> ent_time;
+        // LEAF 的 entangle 區間 [ent_l, ent_r]，非 LEAF 為 -1
+        int ent_l = -1, ent_r = -1;
         // 回溯
         ZLabel(){}
         ZLabel(double _B, double _Z, double _P, Op _op,int _purify_type, int _a, int _b, int _t, int _k, int pid = -1, int lid = -1, int rid = -1)
@@ -76,15 +77,15 @@ private:
     Shape_vector separation_oracle();
 
     // 在固定 path 上做 Werner DP，填滿 L_all（t=1..T-1）
-    void run_dp_in_t(const Path& path, const DPParam& dpp,int t);
+    void run_dp_in_t(const DPParam& dpp,int t);
 
     // ===== 基本操作（Pareto / 分桶 / 存儲 / 回溯 / 評分） =====
     void pareto_prune_byZ(vector<ZLabel>& cand);
     void bucket_by_ZP(vector<ZLabel>& cand);
 
-    Shape_vector backtrack_shape(ZLabel leaf, const vector<int>& path, vector<int>& out_purify_rounds);
-    int split_dis(int s,int d,WernerAlgo2::ZLabel& L);
-    pair<double,WernerAlgo2::ZLabel> eval_best_J(int s, int d, int t, double alp);
+    Shape_vector backtrack_shape(ZLabel leaf, vector<int>& out_purify_rounds);
+    int split_dis(int s,int d,const WernerAlgo_routing::ZLabel& L);
+    pair<double,WernerAlgo_routing::ZLabel> eval_best_J(int s, int d, int t, double alp);
     int purify_time=3;
     double Purify_in_vt[4][5]={
         {1,1},
@@ -98,16 +99,10 @@ private:
     map<Shape_vector, vector<int>> shape_purify_map;
     string experiment_label;  // 目前實驗的標籤 (例如 "request_cnt=80")
 
-    // --- Oracle cache for incremental separation_oracle ---
-    struct OracleCache {
-        double best_score = 1e18;
-        Shape_vector shape;
-        vector<int> purify_rounds;
-        bool valid = false;
-    };
-    vector<vector<OracleCache>> oracle_cache;
-    set<int> dirty_nodes;
-    set<int> dirty_alpha_idxs;
+    // 全點對 hop 距離（variable_initialize 時 BFS 一次），供 split_dis 用
+    vector<vector<int>> hop_dist;
+    // shape 節點序列若重複經過同一節點（walk 而非 simple path）則不可用
+    static bool has_duplicate_nodes(const Shape_vector& sh);
 };
 
-#endif // __WERNER_ALGO2_H
+#endif // __WERNER_ALGO_ROUTING_H
