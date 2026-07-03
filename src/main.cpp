@@ -807,6 +807,9 @@ int main(){
                         DBG_mem("after_run");
                     }
 
+                    // 該輪所有演算法跑完 → 按 request 分組寫出 routing trace（txt + csv）
+                    AlgorithmBase::flush_routing_trace();
+
 
 
                     for(int i = 0; i < (int)algorithms.size(); i++) {

@@ -26,10 +26,23 @@ protected:
     double pass_tao(double F);
     const vector<Path>& get_paths(int src, int dst);
 
-    // === Routing trace (per-request CSV，供跨演算法對照) ===
-    // 每個 request 寫一行到 ../data/log/routing_trace.csv。
-    // 失敗的 request 傳空的 sv（chosen 欄位以 NA 填充）。
+    // === Routing trace (per-request，供跨演算法對照) ===
+    // 各演算法把每個 request 的結果 push 進共用 buffer；同一輪所有演算法
+    // 跑完後由 main 呼叫 flush_routing_trace()，按 request 分組寫出
+    // routing_trace.txt（人讀，同 request 的各演算法路徑排在一起）與
+    // routing_trace.csv（畫圖用）。
     // outcome: accepted / fail_fid / fail_mem / no_shape
+    struct TraceRow {
+        string algo, exp_label, outcome;
+        int req_id, src, dst, sp_hop;
+        bool has_shape;
+        int chosen_hop, tree_depth, finish_t;
+        bool in_path_set;
+        string path_str;   // 節點序列，如 "3 -> 17 -> 45"
+        string pur_str;    // 每段 purify 輪數，如 "1|0"
+        double fidelity, prob;
+    };
+    static vector<TraceRow> trace_buffer;
     void log_routing_trace(int req_id, int src, int dst, const string& outcome,
                            const Shape_vector& sv, const vector<int>& purify_rounds,
                            double fidelity, double prob);
@@ -42,6 +55,8 @@ public:
     const vector<double>& get_cdf() const;
     string get_name();
     void set_experiment_label(const string& label) { experiment_label = label; }
+    // 該輪所有演算法跑完後呼叫：分組寫檔並清空 buffer
+    static void flush_routing_trace();
     virtual ~AlgorithmBase();
     virtual void run() = 0;
 };

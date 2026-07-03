@@ -52,6 +52,7 @@ a.out: main.cpp $(dependency) $(algorithm) $(routing)
 	> ../data/log/ZFA2_Purification_Stats.txt
 	> ../data/log/ZFA_routing_Purification_Stats.txt
 	> ../data/log/routing_trace.csv
+	> ../data/log/routing_trace.txt
 	./a.out
 
 # --- 各個物件檔案 (Object Files) 編譯規則 ---

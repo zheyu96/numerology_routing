@@ -99,56 +99,126 @@ int AlgorithmBase::shape_tree_depth(const Shape_vector& sv, int left, int right)
                    shape_tree_depth(sv, latest, right));
 }
 
+vector<AlgorithmBase::TraceRow> AlgorithmBase::trace_buffer;
+
 void AlgorithmBase::log_routing_trace(int req_id, int src, int dst, const string& outcome,
                                       const Shape_vector& sv, const vector<int>& purify_rounds,
                                       double fidelity, double prob) {
-    #pragma omp critical(routing_trace_write)
+    TraceRow row;
+    row.algo = algorithm_name;
+    row.exp_label = experiment_label;
+    row.outcome = outcome;
+    row.req_id = req_id;
+    row.src = src;
+    row.dst = dst;
+    row.sp_hop = graph.distance(src, dst);
+    row.has_shape = !sv.empty();
+    row.chosen_hop = row.tree_depth = row.finish_t = -1;
+    row.in_path_set = false;
+    row.fidelity = fidelity;
+    row.prob = prob;
+
+    if(row.has_shape) {
+        row.chosen_hop = (int)sv.size() - 1;
+        // 選出的節點序列是否落在預先給的候選 path set 裡（正反向都算）
+        vector<int> seq;
+        for(const auto& nd : sv) seq.push_back(nd.first);
+        for(const Path& p : get_paths(src, dst)) {
+            if(p == seq) { row.in_path_set = true; break; }
+            Path rp(p.rbegin(), p.rend());
+            if(rp == seq) { row.in_path_set = true; break; }
+        }
+        row.tree_depth = shape_tree_depth(sv, 0, (int)sv.size() - 1);
+        for(int i = 0; i < (int)seq.size(); i++) {
+            if(i) row.path_str += " -> ";
+            row.path_str += to_string(seq[i]);
+        }
+        for(int li = 0; li < row.chosen_hop; li++) {
+            int r = (li < (int)purify_rounds.size()) ? purify_rounds[li] : 0;
+            if(li) row.pur_str += '|';
+            row.pur_str += to_string(r);
+        }
+        row.finish_t = 0;
+        for(const auto& nd : sv)
+            for(const auto& rng : nd.second)
+                row.finish_t = max(row.finish_t, rng.second);
+    }
+
+    #pragma omp critical(routing_trace_buffer)
     {
-        const string trace_path = "../data/log/routing_trace.csv";
+        trace_buffer.push_back(row);
+    }
+}
+
+void AlgorithmBase::flush_routing_trace() {
+    if(trace_buffer.empty()) return;
+
+    // 按 req_id 分組（同組內保持演算法執行順序）
+    map<int, vector<const TraceRow*>> by_req;
+    for(const auto& row : trace_buffer)
+        by_req[row.req_id].push_back(&row);
+
+    // --- 人讀版：同一個 request 的各演算法路徑排在一起 ---
+    {
+        ofstream fout("../data/log/routing_trace.txt", ios::app);
+        if(fout.is_open()) {
+            fout << "=== Experiment: " << trace_buffer.front().exp_label << " ===" << endl;
+            for(auto& [rid, rows] : by_req) {
+                const TraceRow* first = rows.front();
+                fout << "req#" << rid << "  SD=(" << first->src << "," << first->dst << ")"
+                     << "  sp_hop=" << first->sp_hop << endl;
+                for(const TraceRow* r : rows) {
+                    fout << "    " << r->algo;
+                    for(int pad = (int)r->algo.size(); pad < 12; pad++) fout << ' ';
+                    fout << ": " << r->outcome;
+                    if(r->has_shape) {
+                        fout << "  | path: " << r->path_str
+                             << "  pur[" << r->pur_str << "]"
+                             << "  hop=" << r->chosen_hop
+                             << " detour=" << (r->chosen_hop - r->sp_hop)
+                             << " in_path_set=" << (r->in_path_set ? 1 : 0)
+                             << " depth=" << r->tree_depth
+                             << " fid=" << r->fidelity
+                             << " prob=" << r->prob
+                             << " finish_t=" << r->finish_t;
+                    }
+                    fout << endl;
+                }
+            }
+            fout << "----------------------------------------" << endl;
+        } else {
+            cerr << "[Warning] Unable to open ../data/log/routing_trace.txt" << endl;
+        }
+    }
+
+    // --- 機讀版 CSV（畫圖用），欄位同先前 ---
+    {
+        const string csv_path = "../data/log/routing_trace.csv";
         bool need_header;
         {
-            ifstream fin(trace_path);
+            ifstream fin(csv_path);
             need_header = !fin.good() || fin.peek() == ifstream::traits_type::eof();
         }
-        ofstream fout(trace_path, ios::app);
+        ofstream fout(csv_path, ios::app);
         if(fout.is_open()) {
             if(need_header) {
                 fout << "algo,exp_label,req_id,src,dst,sp_hop,chosen_hop,detour,"
                      << "in_path_set,tree_depth,purify_rounds,fidelity,prob,finish_t,outcome" << endl;
             }
-            int sp_hop = graph.distance(src, dst);
-            fout << algorithm_name << ',' << experiment_label << ','
-                 << req_id << ',' << src << ',' << dst << ',' << sp_hop << ',';
-            if(sv.empty()) {
-                fout << "NA,NA,NA,NA,NA,NA,NA,NA," << outcome << endl;
-            } else {
-                int chosen_hop = (int)sv.size() - 1;
-                // 選出的節點序列是否落在預先給的候選 path set 裡（正反向都算）
-                vector<int> seq;
-                for(const auto& nd : sv) seq.push_back(nd.first);
-                bool in_set = false;
-                for(const Path& p : get_paths(src, dst)) {
-                    if(p == seq) { in_set = true; break; }
-                    Path rp(p.rbegin(), p.rend());
-                    if(rp == seq) { in_set = true; break; }
+            for(const auto& r : trace_buffer) {
+                fout << r.algo << ',' << r.exp_label << ',' << r.req_id << ','
+                     << r.src << ',' << r.dst << ',' << r.sp_hop << ',';
+                if(!r.has_shape) {
+                    fout << "NA,NA,NA,NA,NA,NA,NA,NA," << r.outcome << endl;
+                } else {
+                    fout << r.chosen_hop << ',' << (r.chosen_hop - r.sp_hop) << ','
+                         << (r.in_path_set ? 1 : 0) << ',' << r.tree_depth << ','
+                         << r.pur_str << ',' << r.fidelity << ',' << r.prob << ','
+                         << r.finish_t << ',' << r.outcome << endl;
                 }
-                int depth = shape_tree_depth(sv, 0, (int)sv.size() - 1);
-                string pur_str;
-                for(int li = 0; li < chosen_hop; li++) {
-                    int r = (li < (int)purify_rounds.size()) ? purify_rounds[li] : 0;
-                    if(li) pur_str += '|';
-                    pur_str += to_string(r);
-                }
-                int finish_t = 0;
-                for(const auto& nd : sv)
-                    for(const auto& rng : nd.second)
-                        finish_t = max(finish_t, rng.second);
-                fout << chosen_hop << ',' << (chosen_hop - sp_hop) << ','
-                     << (in_set ? 1 : 0) << ',' << depth << ',' << pur_str << ','
-                     << fidelity << ',' << prob << ',' << finish_t << ',' << outcome << endl;
             }
-        } else {
-            cerr << "[Warning] Unable to open routing trace file: " << trace_path << endl;
         }
     }
+
+    trace_buffer.clear();
 }
