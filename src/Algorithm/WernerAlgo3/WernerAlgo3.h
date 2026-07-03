@@ -68,12 +68,14 @@ private:
     Shape_vector backtrack_shape(ZLabel leaf, const vector<int>& path, vector<int>& out_purify_rounds);
     int split_dis(int s,int d,WernerAlgo3::ZLabel& L);
     pair<double,WernerAlgo3::ZLabel> eval_best_J(int s, int d, int t, double alp);
-    int purify_time=3;
-    double Purify_in_vt[4][5]={
+    int purify_time=5;
+    double Purify_in_vt[6][7]={
         {1,1},
         {1,2,2},
         {1,2,3,2},
         {1,2,3,3,2},
+        {1,2,3,3,3,2},
+        {1,2,3,3,3,3,2},
     };
 
     ZLabel gen_leaf_label(int s,int e,int st,int tlen,int path_a,int path_b);

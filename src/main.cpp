@@ -249,7 +249,7 @@ vector<SDpair> generate_requests_purify_needed(Graph &graph, int requests_cnt, i
     };
 
     const double margin_ratio = 1.05;  // fidelity 超過 threshold 但不超過 5% 算「邊緣」
-    const int max_purify_rounds = 3;
+    const int max_purify_rounds = 5;   // 與演算法的 purify_time 上限一致
 
     vector<pair<double, SDpair>> candidates;
 

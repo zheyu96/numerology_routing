@@ -45,16 +45,18 @@ public:
 private:
     SwapMode swap_mode;
 
-    static const int MAX_PURIFY_ROUNDS = 3;   // 與 ZFA 系列的 purify_time 一致
+    static const int MAX_PURIFY_ROUNDS = 5;   // 與 ZFA 系列的 purify_time 一致
     static const int MAX_PATH_TRIES   = 5;    // 每條 request 最多換幾條路徑
 
     // 與 WernerAlgo 系列相同：purify r 輪時，link 兩端在第 i 個 offset
     // 需要的總 memory 數（-1 之後是額外量）
-    double Purify_in_vt[4][5] = {
+    double Purify_in_vt[6][7] = {
         {1,1},
         {1,2,2},
         {1,2,3,2},
         {1,2,3,3,2},
+        {1,2,3,3,3,2},
+        {1,2,3,3,3,3,2},
     };
 
     // 在排除 banned 節點的子圖上找 src->dst 的 hop 最短路徑（空 = 不連通）

@@ -86,12 +86,16 @@ private:
     Shape_vector backtrack_shape(ZLabel leaf, vector<int>& out_purify_rounds);
     int split_dis(int s,int d,const WernerAlgo_routing::ZLabel& L);
     pair<double,WernerAlgo_routing::ZLabel> eval_best_J(int s, int d, int t, double alp);
-    int purify_time=3;
-    double Purify_in_vt[4][5]={
+    int purify_time=5;
+    // Purify_in_vt[r][i]：做 r 輪 pumping 時，完成時刻往回數第 i 個 slot 持有的 pair 數
+    // 規律：[0]=1(成品) [1]=2(最後一輪) 中間=3(base+消耗中+新生成) [r+1]=2(base+第一個fresh)
+    double Purify_in_vt[6][7]={
         {1,1},
         {1,2,2},
         {1,2,3,2},
         {1,2,3,3,2},
+        {1,2,3,3,3,2},
+        {1,2,3,3,3,3,2},
     };
 
     ZLabel gen_leaf_label(int s,int e,int st,int tlen,int path_a,int path_b);
