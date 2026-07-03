@@ -35,7 +35,6 @@ public:
                double bucket_eps = -1.0);
 
     void run();
-    void set_experiment_label(const string& label) { experiment_label = label; }
 
 private:
     // ===== Werner DP Label =====
@@ -101,7 +100,6 @@ private:
     ZLabel gen_leaf_label(int s,int e,int st,int tlen,int path_a,int path_b);
     // 暫存最近一次 oracle 回傳 shape 對應的 purify rounds
     map<Shape_vector, vector<int>> shape_purify_map;
-    string experiment_label;  // 目前實驗的標籤 (例如 "request_cnt=80")
 
     // 全點對 hop 距離（variable_initialize 時 BFS 一次），供 split_dis 用
     vector<vector<int>> hop_dist;

@@ -780,6 +780,13 @@ int main(){
                     }
 
 
+                    // 統一設定實驗標籤（routing_trace.csv 的 exp_label 欄位）
+                    {
+                        string exp_label_all = X_name + "=" + to_string(change_value) + " Round=" + to_string(r);
+                        for(auto* algo : algorithms)
+                            algo->set_experiment_label(exp_label_all);
+                    }
+
                     //#pragma omp parallel for schedule(dynamic)
                     for(int i = 0; i < (int)algorithms.size(); i++) {
                         cerr << "[CKPT] >>> RUN algo[" << i << "] = " << algorithms[i]->get_name() << endl;

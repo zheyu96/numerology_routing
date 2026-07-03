@@ -487,6 +487,8 @@ void WernerAlgo2::run() {
 
         vector<bool> used(requests.size(), false);
         vector<int> finished;
+        // per-request 最終結果（routing trace 用）：accepted / fail_fid / fail_mem / no_shape
+        vector<string> req_outcome(requests.size(), "no_shape");
 
         // [診斷] 統計 rounding 結果
         int round_total = 0, round_purified = 0, round_nopurify = 0;
@@ -539,10 +541,11 @@ void WernerAlgo2::run() {
             if(!fid_check) {
                 try {
                     bool mem_only = graph.check_resource(shape, false, true);
-                    if(!mem_only) round_fail_mem++;
-                    else round_fail_fid++;
+                    if(!mem_only) { round_fail_mem++; req_outcome[request_index] = "fail_mem"; }
+                    else { round_fail_fid++; req_outcome[request_index] = "fail_fid"; }
                 } catch(const runtime_error&) {
                     round_fail_fid++;
+                    req_outcome[request_index] = "fail_fid";
                 }
             }
             if(fid_check) {
@@ -583,9 +586,13 @@ void WernerAlgo2::run() {
                         resource_ok = false;
                 }
             }
-            if(!resource_ok && fid_check) round_fail_purify_mem++;  // fidelity ok 但 purify memory 不夠
+            if(!resource_ok && fid_check) {
+                round_fail_purify_mem++;  // fidelity ok 但 purify memory 不夠
+                req_outcome[request_index] = "fail_mem";
+            }
             if(resource_ok) {
                 used[request_index] = true;
+                req_outcome[request_index] = "accepted";
                 if(has_purify) round_purified++; else round_nopurify++;
                 graph.reserve_shape(shape, true);
                 // 額外扣除 purification 多消耗的 memory（標準 Shape 已扣 1，這裡補扣剩餘）
@@ -608,6 +615,16 @@ void WernerAlgo2::run() {
                     }
                 }
                 finished.push_back(request_index);
+
+                // routing trace CSV（per-request 對照用，接受的都記）
+                {
+                    Shape_vector sv_acc = shape.get_node_mem_range();
+                    vector<int> pr_acc = shape.get_link_purify_rounds();
+                    double fid_acc = shape.get_fidelity(A, B, n, T, tao, graph.get_F_init(), true);
+                    double prob_acc = has_purify ? graph.path_Pr_purify(shape) : graph.path_Pr(shape);
+                    log_routing_trace(request_index, sv_acc.front().first, sv_acc.back().first,
+                                      "accepted", sv_acc, pr_acc, fid_acc, prob_acc);
+                }
 
                 // [新增] 收集 purification 前後的 fidelity 與 prob 統計（僅記錄有 purify 的）
                 if(has_purify) {
@@ -661,6 +678,13 @@ void WernerAlgo2::run() {
              << " | fail_purify_extra_mem=" << round_fail_purify_mem
              << " | purify_map_size=" << shape_purify_map.size()
              << "\033[0m" << endl;
+
+        // routing trace：所有未被接受的 request 也各記一行（NA 欄位）
+        for(int i = 0; i < (int)requests.size(); i++) {
+            if(used[i]) continue;
+            log_routing_trace(i, requests[i].first, requests[i].second, req_outcome[i],
+                              Shape_vector{}, vector<int>{}, 0, 0);
+        }
 
         sort(finished.rbegin(), finished.rend());
         for(auto fin : finished) {

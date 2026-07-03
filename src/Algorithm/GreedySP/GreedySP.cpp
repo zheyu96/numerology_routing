@@ -181,6 +181,13 @@ void GreedySP::run() {
                 reserve_purify_extra(sv, rounds);
                 served = true;
 
+                // routing trace CSV（per-request 對照用）
+                {
+                    double fid_acc = shape.get_fidelity(A, B, n, T, tao, graph.get_F_init(), true);
+                    double prob_acc = graph.path_Pr_purify(shape);
+                    log_routing_trace(i, src, dst, "accepted", sv, rounds, fid_acc, prob_acc);
+                }
+
                 cerr << "\033[1;36m" << "[" << algorithm_name << " path] req#" << i
                      << " (" << src << "->" << dst << "): ";
                 for (int j = 0; j <= h; j++) {
@@ -200,6 +207,11 @@ void GreedySP::run() {
         if (served) finished.push_back(i);
         else if (fid_hopeless) fail_fid++;
         else fail_mem++; // 含找不到路徑的情況
+
+        if (!served) {
+            log_routing_trace(i, src, dst, fid_hopeless ? "fail_fid" : "fail_mem",
+                              Shape_vector{}, vector<int>{}, 0, 0);
+        }
     }
 
     cerr << "\033[1;35m" << "[" << algorithm_name << "] served=" << finished.size()

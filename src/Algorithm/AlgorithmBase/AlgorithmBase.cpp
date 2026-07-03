@@ -87,3 +87,68 @@ void AlgorithmBase::update_res() {
 const vector<Path>& AlgorithmBase::get_paths(int src, int dst) {
     return paths[{src, dst}];
 }
+
+int AlgorithmBase::shape_tree_depth(const Shape_vector& sv, int left, int right) {
+    if(left >= right - 1) return 0;  // 單條 link
+    int latest = left + 1;
+    for(int i = left + 1; i < right; i++) {
+        if(sv[i].second[0].second > sv[latest].second[0].second)
+            latest = i;
+    }
+    return 1 + max(shape_tree_depth(sv, left, latest),
+                   shape_tree_depth(sv, latest, right));
+}
+
+void AlgorithmBase::log_routing_trace(int req_id, int src, int dst, const string& outcome,
+                                      const Shape_vector& sv, const vector<int>& purify_rounds,
+                                      double fidelity, double prob) {
+    #pragma omp critical(routing_trace_write)
+    {
+        const string trace_path = "../data/log/routing_trace.csv";
+        bool need_header;
+        {
+            ifstream fin(trace_path);
+            need_header = !fin.good() || fin.peek() == ifstream::traits_type::eof();
+        }
+        ofstream fout(trace_path, ios::app);
+        if(fout.is_open()) {
+            if(need_header) {
+                fout << "algo,exp_label,req_id,src,dst,sp_hop,chosen_hop,detour,"
+                     << "in_path_set,tree_depth,purify_rounds,fidelity,prob,finish_t,outcome" << endl;
+            }
+            int sp_hop = graph.distance(src, dst);
+            fout << algorithm_name << ',' << experiment_label << ','
+                 << req_id << ',' << src << ',' << dst << ',' << sp_hop << ',';
+            if(sv.empty()) {
+                fout << "NA,NA,NA,NA,NA,NA,NA,NA," << outcome << endl;
+            } else {
+                int chosen_hop = (int)sv.size() - 1;
+                // 選出的節點序列是否落在預先給的候選 path set 裡（正反向都算）
+                vector<int> seq;
+                for(const auto& nd : sv) seq.push_back(nd.first);
+                bool in_set = false;
+                for(const Path& p : get_paths(src, dst)) {
+                    if(p == seq) { in_set = true; break; }
+                    Path rp(p.rbegin(), p.rend());
+                    if(rp == seq) { in_set = true; break; }
+                }
+                int depth = shape_tree_depth(sv, 0, (int)sv.size() - 1);
+                string pur_str;
+                for(int li = 0; li < chosen_hop; li++) {
+                    int r = (li < (int)purify_rounds.size()) ? purify_rounds[li] : 0;
+                    if(li) pur_str += '|';
+                    pur_str += to_string(r);
+                }
+                int finish_t = 0;
+                for(const auto& nd : sv)
+                    for(const auto& rng : nd.second)
+                        finish_t = max(finish_t, rng.second);
+                fout << chosen_hop << ',' << (chosen_hop - sp_hop) << ','
+                     << (in_set ? 1 : 0) << ',' << depth << ',' << pur_str << ','
+                     << fidelity << ',' << prob << ',' << finish_t << ',' << outcome << endl;
+            }
+        } else {
+            cerr << "[Warning] Unable to open routing trace file: " << trace_path << endl;
+        }
+    }
+}

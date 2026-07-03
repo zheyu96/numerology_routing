@@ -51,6 +51,7 @@ a.out: main.cpp $(dependency) $(algorithm) $(routing)
 	g++ -fopenmp $(gcc_flag) main.cpp $(dependency) $(algorithm) $(routing) $(gurobi_flag) -o a.out
 	> ../data/log/ZFA2_Purification_Stats.txt
 	> ../data/log/ZFA_routing_Purification_Stats.txt
+	> ../data/log/routing_trace.csv
 	./a.out
 
 # --- 各個物件檔案 (Object Files) 編譯規則 ---
@@ -65,43 +66,43 @@ Network/Shape/Shape.o: Network/Shape/Shape.cpp Network/Shape/Shape.h Network/Pur
 Network/Graph/Graph.o: Network/Graph/Graph.cpp Network/Graph/Graph.h Network/Purification/Purification.h config.h
 	g++ -c $(gcc_flag) Network/Graph/Graph.cpp -o Network/Graph/Graph.o
 
-Algorithm/AlgorithmBase/AlgorithmBase.o: Algorithm/AlgorithmBase/AlgorithmBase.h Algorithm/AlgorithmBase/AlgorithmBase.cpp config.h
+Algorithm/AlgorithmBase/AlgorithmBase.o: Algorithm/AlgorithmBase/AlgorithmBase.h Algorithm/AlgorithmBase/AlgorithmBase.cpp config.h Algorithm/AlgorithmBase/AlgorithmBase.h
 	g++ -c $(gcc_flag) Algorithm/AlgorithmBase/AlgorithmBase.cpp -o Algorithm/AlgorithmBase/AlgorithmBase.o
 
 # MyAlgo 1-6 編譯規則
-Algorithm/MyAlgo1/MyAlgo1.o: Algorithm/MyAlgo1/MyAlgo1.cpp Algorithm/MyAlgo1/MyAlgo1.h config.h
+Algorithm/MyAlgo1/MyAlgo1.o: Algorithm/MyAlgo1/MyAlgo1.cpp Algorithm/MyAlgo1/MyAlgo1.h config.h Algorithm/AlgorithmBase/AlgorithmBase.h
 	g++ -c $(gcc_flag) Algorithm/MyAlgo1/MyAlgo1.cpp -o Algorithm/MyAlgo1/MyAlgo1.o
-Algorithm/MyAlgo2/MyAlgo2.o: Algorithm/MyAlgo2/MyAlgo2.cpp Algorithm/MyAlgo2/MyAlgo2.h config.h
+Algorithm/MyAlgo2/MyAlgo2.o: Algorithm/MyAlgo2/MyAlgo2.cpp Algorithm/MyAlgo2/MyAlgo2.h config.h Algorithm/AlgorithmBase/AlgorithmBase.h
 	g++ -c $(gcc_flag) Algorithm/MyAlgo2/MyAlgo2.cpp -o Algorithm/MyAlgo2/MyAlgo2.o
-Algorithm/MyAlgo3/MyAlgo3.o: Algorithm/MyAlgo3/MyAlgo3.cpp Algorithm/MyAlgo3/MyAlgo3.h config.h
+Algorithm/MyAlgo3/MyAlgo3.o: Algorithm/MyAlgo3/MyAlgo3.cpp Algorithm/MyAlgo3/MyAlgo3.h config.h Algorithm/AlgorithmBase/AlgorithmBase.h
 	g++ -c $(gcc_flag) Algorithm/MyAlgo3/MyAlgo3.cpp -o Algorithm/MyAlgo3/MyAlgo3.o
-Algorithm/MyAlgo4/MyAlgo4.o: Algorithm/MyAlgo4/MyAlgo4.cpp Algorithm/MyAlgo4/MyAlgo4.h config.h
+Algorithm/MyAlgo4/MyAlgo4.o: Algorithm/MyAlgo4/MyAlgo4.cpp Algorithm/MyAlgo4/MyAlgo4.h config.h Algorithm/AlgorithmBase/AlgorithmBase.h
 	g++ -c $(gcc_flag) Algorithm/MyAlgo4/MyAlgo4.cpp -o Algorithm/MyAlgo4/MyAlgo4.o
-Algorithm/MyAlgo5/MyAlgo5.o: Algorithm/MyAlgo5/MyAlgo5.cpp Algorithm/MyAlgo5/MyAlgo5.h config.h
+Algorithm/MyAlgo5/MyAlgo5.o: Algorithm/MyAlgo5/MyAlgo5.cpp Algorithm/MyAlgo5/MyAlgo5.h config.h Algorithm/AlgorithmBase/AlgorithmBase.h
 	g++ -c $(gcc_flag) Algorithm/MyAlgo5/MyAlgo5.cpp -o Algorithm/MyAlgo5/MyAlgo5.o
-Algorithm/MyAlgo6/MyAlgo6.o: Algorithm/MyAlgo6/MyAlgo6.cpp Algorithm/MyAlgo6/MyAlgo6.h config.h
+Algorithm/MyAlgo6/MyAlgo6.o: Algorithm/MyAlgo6/MyAlgo6.cpp Algorithm/MyAlgo6/MyAlgo6.h config.h Algorithm/AlgorithmBase/AlgorithmBase.h
 	g++ -c $(gcc_flag) Algorithm/MyAlgo6/MyAlgo6.cpp -o Algorithm/MyAlgo6/MyAlgo6.o
 
 # Werner 演算法編譯規則
-Algorithm/WernerAlgo/WernerAlgo.o: Algorithm/WernerAlgo/WernerAlgo.cpp Algorithm/WernerAlgo/WernerAlgo.h config.h
+Algorithm/WernerAlgo/WernerAlgo.o: Algorithm/WernerAlgo/WernerAlgo.cpp Algorithm/WernerAlgo/WernerAlgo.h config.h Algorithm/AlgorithmBase/AlgorithmBase.h
 	g++ -c $(gcc_flag) Algorithm/WernerAlgo/WernerAlgo.cpp -o Algorithm/WernerAlgo/WernerAlgo.o
-Algorithm/WernerAlgo2/WernerAlgo2.o: Algorithm/WernerAlgo2/WernerAlgo2.cpp Algorithm/WernerAlgo2/WernerAlgo2.h Network/Purification/Purification.h config.h
+Algorithm/WernerAlgo2/WernerAlgo2.o: Algorithm/WernerAlgo2/WernerAlgo2.cpp Algorithm/WernerAlgo2/WernerAlgo2.h Network/Purification/Purification.h config.h Algorithm/AlgorithmBase/AlgorithmBase.h
 	g++ -c $(gcc_flag) Algorithm/WernerAlgo2/WernerAlgo2.cpp -o Algorithm/WernerAlgo2/WernerAlgo2.o
-Algorithm/WernerAlgo_routing/WernerAlgo_routing.o: Algorithm/WernerAlgo_routing/WernerAlgo_routing.cpp Algorithm/WernerAlgo_routing/WernerAlgo_routing.h Network/Purification/Purification.h config.h
+Algorithm/WernerAlgo_routing/WernerAlgo_routing.o: Algorithm/WernerAlgo_routing/WernerAlgo_routing.cpp Algorithm/WernerAlgo_routing/WernerAlgo_routing.h Network/Purification/Purification.h config.h Algorithm/AlgorithmBase/AlgorithmBase.h
 	g++ -c $(gcc_flag) Algorithm/WernerAlgo_routing/WernerAlgo_routing.cpp -o Algorithm/WernerAlgo_routing/WernerAlgo_routing.o
-Algorithm/WernerAlgo3/WernerAlgo3.o: Algorithm/WernerAlgo3/WernerAlgo3.cpp Algorithm/WernerAlgo3/WernerAlgo3.h config.h
+Algorithm/WernerAlgo3/WernerAlgo3.o: Algorithm/WernerAlgo3/WernerAlgo3.cpp Algorithm/WernerAlgo3/WernerAlgo3.h config.h Algorithm/AlgorithmBase/AlgorithmBase.h
 	g++ -c $(gcc_flag) Algorithm/WernerAlgo3/WernerAlgo3.cpp -o Algorithm/WernerAlgo3/WernerAlgo3.o
-Algorithm/WernerAlgo_UB/WernerAlgo_UB.o: Algorithm/WernerAlgo_UB/WernerAlgo_UB.cpp Algorithm/WernerAlgo_UB/WernerAlgo_UB.h config.h
+Algorithm/WernerAlgo_UB/WernerAlgo_UB.o: Algorithm/WernerAlgo_UB/WernerAlgo_UB.cpp Algorithm/WernerAlgo_UB/WernerAlgo_UB.h config.h Algorithm/AlgorithmBase/AlgorithmBase.h
 	g++ -c $(gcc_flag) Algorithm/WernerAlgo_UB/WernerAlgo_UB.cpp -o Algorithm/WernerAlgo_UB/WernerAlgo_UB.o
-Algorithm/GreedySP/GreedySP.o: Algorithm/GreedySP/GreedySP.cpp Algorithm/GreedySP/GreedySP.h Network/Purification/Purification.h config.h
+Algorithm/GreedySP/GreedySP.o: Algorithm/GreedySP/GreedySP.cpp Algorithm/GreedySP/GreedySP.h Network/Purification/Purification.h config.h Algorithm/AlgorithmBase/AlgorithmBase.h
 	g++ -c $(gcc_flag) Algorithm/GreedySP/GreedySP.cpp -o Algorithm/GreedySP/GreedySP.o
 
 # 時間量測版本演算法編譯規則
-Algorithm/WernerAlgo_time/WernerAlgo_time.o: Algorithm/WernerAlgo_time/WernerAlgo_time.cpp Algorithm/WernerAlgo_time/WernerAlgo_time.h config.h
+Algorithm/WernerAlgo_time/WernerAlgo_time.o: Algorithm/WernerAlgo_time/WernerAlgo_time.cpp Algorithm/WernerAlgo_time/WernerAlgo_time.h config.h Algorithm/AlgorithmBase/AlgorithmBase.h
 	g++ -c $(gcc_flag) Algorithm/WernerAlgo_time/WernerAlgo_time.cpp -o Algorithm/WernerAlgo_time/WernerAlgo_time.o
-Algorithm/WernerAlgo2_time/WernerAlgo2_time.o: Algorithm/WernerAlgo2_time/WernerAlgo2_time.cpp Algorithm/WernerAlgo2_time/WernerAlgo2_time.h config.h
+Algorithm/WernerAlgo2_time/WernerAlgo2_time.o: Algorithm/WernerAlgo2_time/WernerAlgo2_time.cpp Algorithm/WernerAlgo2_time/WernerAlgo2_time.h config.h Algorithm/AlgorithmBase/AlgorithmBase.h
 	g++ -c $(gcc_flag) Algorithm/WernerAlgo2_time/WernerAlgo2_time.cpp -o Algorithm/WernerAlgo2_time/WernerAlgo2_time.o
-Algorithm/MyAlgo1_time/MyAlgo1_time.o: Algorithm/MyAlgo1_time/MyAlgo1_time.cpp Algorithm/MyAlgo1_time/MyAlgo1_time.h config.h
+Algorithm/MyAlgo1_time/MyAlgo1_time.o: Algorithm/MyAlgo1_time/MyAlgo1_time.cpp Algorithm/MyAlgo1_time/MyAlgo1_time.h config.h Algorithm/AlgorithmBase/AlgorithmBase.h
 	g++ -c $(gcc_flag) Algorithm/MyAlgo1_time/MyAlgo1_time.cpp -o Algorithm/MyAlgo1_time/MyAlgo1_time.o
 
 # 路由與路徑方法編譯規則 (REPS 需連結 Gurobi)
