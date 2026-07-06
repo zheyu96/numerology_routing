@@ -103,7 +103,6 @@ int AlgorithmBase::shape_tree_depth(const Shape_vector& sv, int left, int right)
 
 vector<AlgorithmBase::TraceRow> AlgorithmBase::trace_buffer;
 map<SDpair, vector<string>> AlgorithmBase::trace_path_sets;
-vector<string> AlgorithmBase::trace_link_table;
 
 // 節點序列 → "u -(F0.850|P0.312)-> v -..."（每段 link 標上原始 fidelity 與 entangle 成功機率）
 static string format_path_links(Graph& graph, const vector<int>& seq) {
@@ -192,22 +191,6 @@ void AlgorithmBase::log_routing_trace(int req_id, int src, int dst, const string
                 strs.push_back(format_path_links(graph, p));
             trace_path_sets[sd] = strs;
         }
-        // 該輪第一次 log 時擷取全網 link 即時狀態（F/Pr 由距離決定，一輪內固定）
-        if(trace_link_table.empty()) {
-            ostringstream ls;
-            ls << fixed << setprecision(4);
-            for(const auto& [uv, f] : graph.get_F_init()) {
-                int u = uv.first, v = uv.second;
-                if(u >= v) continue;  // F_init 雙向各存一份，只印 u < v
-                ls.str("");
-                ls << "link " << setw(3) << u << " -- " << setw(3) << v
-                   << " : F=" << f
-                   << "  W=" << graph.get_link_werner(u, v)
-                   << "  Pr=" << graph.get_entangle_succ_prob(u, v)
-                   << "  -lnW=" << graph.get_edge_W(u, v);
-                trace_link_table.push_back(ls.str());
-            }
-        }
     }
 }
 
@@ -224,12 +207,6 @@ void AlgorithmBase::flush_routing_trace() {
         ofstream fout("../data/log/routing_trace.txt", ios::app);
         if(fout.is_open()) {
             fout << "=== Experiment: " << trace_buffer.front().exp_label << " ===" << endl;
-            // 全網 link 即時狀態（fidelity / Werner / entangle 成功機率 / 成本權重）
-            if(!trace_link_table.empty()) {
-                fout << "[Link status] " << trace_link_table.size() << " links:" << endl;
-                for(const string& s : trace_link_table)
-                    fout << "    " << s << endl;
-            }
             for(auto& [rid, rows] : by_req) {
                 const TraceRow* first = rows.front();
                 fout << "req#" << rid << "  SD=(" << first->src << "," << first->dst << ")"
@@ -302,5 +279,4 @@ void AlgorithmBase::flush_routing_trace() {
 
     trace_buffer.clear();
     trace_path_sets.clear();
-    trace_link_table.clear();
 }
