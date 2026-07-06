@@ -1,4 +1,6 @@
 #include "AlgorithmBase.h"
+#include "../../Network/Purification/Purification.h"
+#include <iomanip>
 
 AlgorithmBase::AlgorithmBase(const Graph& graph, const vector<SDpair>& requests, const map<SDpair, vector<Path>>& paths):
     graph(graph), requests(requests), paths(paths) {
@@ -100,6 +102,22 @@ int AlgorithmBase::shape_tree_depth(const Shape_vector& sv, int left, int right)
 }
 
 vector<AlgorithmBase::TraceRow> AlgorithmBase::trace_buffer;
+map<SDpair, vector<string>> AlgorithmBase::trace_path_sets;
+vector<string> AlgorithmBase::trace_link_table;
+
+// 節點序列 → "u -(F0.850|P0.312)-> v -..."（每段 link 標上原始 fidelity 與 entangle 成功機率）
+static string format_path_links(Graph& graph, const vector<int>& seq) {
+    ostringstream ss;
+    ss << fixed << setprecision(3);
+    for(size_t i = 0; i < seq.size(); i++) {
+        ss << seq[i];
+        if(i + 1 < seq.size()) {
+            ss << " -(F" << graph.get_F_init(seq[i], seq[i + 1])
+               << "|P" << graph.get_entangle_succ_prob(seq[i], seq[i + 1]) << ")-> ";
+        }
+    }
+    return ss.str();
+}
 
 void AlgorithmBase::log_routing_trace(int req_id, int src, int dst, const string& outcome,
                                       const Shape_vector& sv, const vector<int>& purify_rounds,
@@ -129,10 +147,7 @@ void AlgorithmBase::log_routing_trace(int req_id, int src, int dst, const string
             if(rp == seq) { row.in_path_set = true; break; }
         }
         row.tree_depth = shape_tree_depth(sv, 0, (int)sv.size() - 1);
-        for(int i = 0; i < (int)seq.size(); i++) {
-            if(i) row.path_str += " -> ";
-            row.path_str += to_string(seq[i]);
-        }
+        row.path_str = format_path_links(graph, seq);
         for(int li = 0; li < row.chosen_hop; li++) {
             int r = (li < (int)purify_rounds.size()) ? purify_rounds[li] : 0;
             if(li) row.pur_str += '|';
@@ -142,11 +157,57 @@ void AlgorithmBase::log_routing_trace(int req_id, int src, int dst, const string
         for(const auto& nd : sv)
             for(const auto& rng : nd.second)
                 row.finish_t = max(row.finish_t, rng.second);
+
+        // 每段 link 的詳細物理量：原始 F/W/Pr 與（有 purify 時）purify 後的值。
+        // 與演算法用同一套 Purification 公式（論文 Eq.5-8）。
+        {
+            ostringstream ls;
+            ls << fixed << setprecision(3);
+            for(int li = 0; li < row.chosen_hop; li++) {
+                int u = seq[li], v = seq[li + 1];
+                int r = (li < (int)purify_rounds.size()) ? purify_rounds[li] : 0;
+                double raw_f = graph.get_F_init(u, v);
+                double raw_w = Purification::fidelity_to_werner(raw_f);
+                double raw_p = graph.get_entangle_succ_prob(u, v);
+                ls.str("");
+                ls << "link " << u << "->" << v << " : pur=" << r << "  F=" << raw_f;
+                if(r > 0) ls << " -> " << Purification::werner_to_fidelity(Purification::pumping_werner(raw_w, r));
+                ls << "  W=" << raw_w;
+                if(r > 0) ls << " -> " << Purification::pumping_werner(raw_w, r);
+                ls << "  Pr=" << raw_p;
+                if(r > 0) ls << " -> " << Purification::pumping_success_prob(raw_p, raw_w, r);
+                row.link_details.push_back(ls.str());
+            }
+        }
     }
 
     #pragma omp critical(routing_trace_buffer)
     {
         trace_buffer.push_back(row);
+        // 第一次遇到這個 SD pair 時，把候選 path set 也格式化存起來
+        SDpair sd = {src, dst};
+        if(!trace_path_sets.count(sd)) {
+            vector<string> strs;
+            for(const Path& p : get_paths(src, dst))
+                strs.push_back(format_path_links(graph, p));
+            trace_path_sets[sd] = strs;
+        }
+        // 該輪第一次 log 時擷取全網 link 即時狀態（F/Pr 由距離決定，一輪內固定）
+        if(trace_link_table.empty()) {
+            ostringstream ls;
+            ls << fixed << setprecision(4);
+            for(const auto& [uv, f] : graph.get_F_init()) {
+                int u = uv.first, v = uv.second;
+                if(u >= v) continue;  // F_init 雙向各存一份，只印 u < v
+                ls.str("");
+                ls << "link " << setw(3) << u << " -- " << setw(3) << v
+                   << " : F=" << f
+                   << "  W=" << graph.get_link_werner(u, v)
+                   << "  Pr=" << graph.get_entangle_succ_prob(u, v)
+                   << "  -lnW=" << graph.get_edge_W(u, v);
+                trace_link_table.push_back(ls.str());
+            }
+        }
     }
 }
 
@@ -163,10 +224,27 @@ void AlgorithmBase::flush_routing_trace() {
         ofstream fout("../data/log/routing_trace.txt", ios::app);
         if(fout.is_open()) {
             fout << "=== Experiment: " << trace_buffer.front().exp_label << " ===" << endl;
+            // 全網 link 即時狀態（fidelity / Werner / entangle 成功機率 / 成本權重）
+            if(!trace_link_table.empty()) {
+                fout << "[Link status] " << trace_link_table.size() << " links:" << endl;
+                for(const string& s : trace_link_table)
+                    fout << "    " << s << endl;
+            }
             for(auto& [rid, rows] : by_req) {
                 const TraceRow* first = rows.front();
                 fout << "req#" << rid << "  SD=(" << first->src << "," << first->dst << ")"
                      << "  sp_hop=" << first->sp_hop << endl;
+                // 這個 SD pair 拿到的候選 path set（ZFA2 只能從這裡選）
+                auto ps_it = trace_path_sets.find({first->src, first->dst});
+                if(ps_it != trace_path_sets.end()) {
+                    if(ps_it->second.empty()) {
+                        fout << "    path_set   : (empty)" << endl;
+                    } else {
+                        fout << "    path_set   (" << ps_it->second.size() << " candidates):" << endl;
+                        for(const string& s : ps_it->second)
+                            fout << "        - " << s << endl;
+                    }
+                }
                 for(const TraceRow* r : rows) {
                     fout << "    " << r->algo;
                     for(int pad = (int)r->algo.size(); pad < 12; pad++) fout << ' ';
@@ -183,6 +261,8 @@ void AlgorithmBase::flush_routing_trace() {
                              << " finish_t=" << r->finish_t;
                     }
                     fout << endl;
+                    for(const string& ld : r->link_details)
+                        fout << "        " << ld << endl;
                 }
             }
             fout << "----------------------------------------" << endl;
@@ -221,4 +301,6 @@ void AlgorithmBase::flush_routing_trace() {
     }
 
     trace_buffer.clear();
+    trace_path_sets.clear();
+    trace_link_table.clear();
 }

@@ -40,9 +40,16 @@ protected:
         bool in_path_set;
         string path_str;   // 節點序列，如 "3 -> 17 -> 45"
         string pur_str;    // 每段 purify 輪數，如 "1|0"
+        // 每段 link 一行明細：pur 輪數、F/W/Pr 原始值與 purify 後的值
+        vector<string> link_details;
         double fidelity, prob;
     };
     static vector<TraceRow> trace_buffer;
+    // 每個 SD pair 的候選 path set（帶 per-link F/Pr 標註），flush 時印在 request 區塊
+    static map<SDpair, vector<string>> trace_path_sets;
+    // 全網每條 link 的即時狀態快照（F / W / Pr / -lnW），該輪第一次 log 時擷取，
+    // flush 時印在 experiment 區塊開頭
+    static vector<string> trace_link_table;
     void log_routing_trace(int req_id, int src, int dst, const string& outcome,
                            const Shape_vector& sv, const vector<int>& purify_rounds,
                            double fidelity, double prob);
