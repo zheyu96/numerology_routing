@@ -389,7 +389,7 @@ int main(){
 
     map<string, double> default_setting;
     default_setting["num_nodes"] = 75;
-    default_setting["request_cnt"] = 40;
+    default_setting["request_cnt"] = 60;
     default_setting["entangle_lambda"] = 0.045;
     default_setting["time_limit"] = 13;
     // avg_memory 必須夠緊張，讓演算法無法服務所有可行 request → 不同策略做不同取捨
