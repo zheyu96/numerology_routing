@@ -31,7 +31,7 @@ void WernerAlgo3::variable_initialize() {
     dpp.Zmin = graph.get_Zmin();
     dpp.T    = time_limit-1;
     dpp.tau_max=min(time_limit-1,5);
-    dpp.eta  = graph.get_tao()/graph.get_time_limit();
+    dpp.eta  = graph.get_tao()/graph.get_T();   // 論文 Eq.(2): eta = delta / T_mem
     dpp.deltaP=graph.get_delta_P();
     beta.assign(V, vector<double>(T, INF));
 

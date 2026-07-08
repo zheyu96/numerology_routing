@@ -581,8 +581,8 @@ int main(){
 
 
     // vector<string> X_names = {"time_limit", "request_cnt", "num_nodes", "avg_memory", "tao"};
-    //vector<string> X_names = {"request_cnt"};
-    vector<string> X_names = { "request_cnt", "time_limit", "tao",  "fidelity_threshold" , "avg_memory","hop_count","swap_prob" };
+    vector<string> X_names = {"tao"};
+    //vector<string> X_names = { "request_cnt", "time_limit", "tao",  "fidelity_threshold" , "avg_memory","hop_count","swap_prob" };
     //vector<string> X_names = {"Zmin","bucket_eps","time_eta"};
     vector<string> Y_names = {"fidelity_gain", "succ_request_cnt","actual_req_cnt"};
     vector<string> algo_names = {"ZFA_UB","ZFA2","ZFA_routing","MyAlgo1", "MyAlgo3","SP_skewed","SP_balanced"};

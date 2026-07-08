@@ -1,7 +1,6 @@
 import numpy as np
 import math
 import os
-import latex
 import matplotlib.pyplot as plt
 import matplotlib.transforms
 import matplotlib
@@ -58,55 +57,47 @@ class ChartGenerator:
         ax1.tick_params(bottom=True, top=True, left=True, right=True)
         ax1.tick_params(pad=10)
 
-        RIGHT_TOP = (0.7, 0.87)
-        LEFT_TOP = (0.3, 0.87)
+        RIGHT_TOP = (0.66, 0.87)
+        LEFT_TOP = (0.4, 0.87)
         bbox_pos_settings = {
             'fidelity_gain':{
                 'request_cnt': LEFT_TOP,
                 'tao': RIGHT_TOP,
                 'time_limit': LEFT_TOP,
                 'avg_memory': LEFT_TOP,
-                'min_fidelity': LEFT_TOP,
                 'fidelity_threshold': RIGHT_TOP,
                 'swap_prob': LEFT_TOP,
-                'entangle_time': RIGHT_TOP,
-                'entangle_prob': LEFT_TOP
+                'hop_count': RIGHT_TOP
             },
             'succ_request_cnt':{
                 'request_cnt': LEFT_TOP,
                 'tao': RIGHT_TOP,
                 'time_limit': LEFT_TOP,
                 'avg_memory': LEFT_TOP,
-                'min_fidelity': LEFT_TOP,
                 'fidelity_threshold': RIGHT_TOP,
                 'swap_prob': LEFT_TOP,
-                'entangle_time': RIGHT_TOP,
-                'entangle_prob': LEFT_TOP
+                'hop_count': RIGHT_TOP
             },
         }
 
         Y_interval_settings = {
             'fidelity_gain':{
-                'request_cnt': (5, 30, 5),
-                'tao': (5, 25, 5),
-                'time_limit': (5, 25, 5),
-                'avg_memory': (5, 20, 5),
-                'min_fidelity': (5, 25, 5),
-                'fidelity_threshold': (0, 25, 5),
-                'swap_prob': (0, 20, 5),
-                'entangle_time': (0, 25, 5),
-                'entangle_prob': (0, 2e-4, 5e-5)
+                'request_cnt': (5, 50, 15),
+                'tao': (20, 40, 5),
+                'time_limit': (15, 40, 5),
+                'avg_memory': (20, 40, 5),
+                'fidelity_threshold': (0, 50, 10),
+                'swap_prob': (10, 45, 5),
+                'hop_count': (0, 50, 10)
             },
             'succ_request_cnt':{
-                'request_cnt': (5, 40, 5),
-                'tao': (5, 30, 5),
-                'time_limit': (5, 30, 5),
-                'avg_memory': (5, 30, 5),
-                'min_fidelity': (5, 30, 5),
-                'fidelity_threshold': (0, 30, 5),
-                'swap_prob': (0, 25, 5),
-                'entangle_time': (0, 25, 5),
-                'entangle_prob': (0, 2e-4, 5e-5)
+                'request_cnt': (5, 60, 15),
+                'tao': (25, 50, 5),
+                'time_limit': (20, 50, 5),
+                'avg_memory': (25, 50, 5),
+                'fidelity_threshold': (0, 60, 10),
+                'swap_prob': (15, 50, 5),
+                'hop_count': (0, 50, 10)
             }
         }
 
@@ -143,7 +134,6 @@ class ChartGenerator:
 
         max_data = 0
         min_data = math.inf
-        Ypow = -5
         Ydiv = float(10 ** Ypow)
         Xdiv = float(10 ** Xpow)
         
@@ -163,22 +153,25 @@ class ChartGenerator:
         Start plotting
 
         """
-        per_algo_name = ["G-FNPR", "G-UB", "G-FLTO", "G-Nesting", "G-Linear", "G-ASAP"]
+        # 對應 main.cpp algo_names = {"ZFA_UB","ZFA2","ZFA_routing","MyAlgo1","MyAlgo3","SP_skewed","SP_balanced"}
+        per_algo_name = ["ZFA-UB", "WPFA", "WPFA-Routing", "FNPR", "FLTO", "SP-Skewed", "SP-Balanced"]
+        hide_UB = True   # 設成 False 可讓 fidelity_gain 圖顯示 ZFA-UB
         algo_name = []
-        per = [0, 2, 1, 3, 4, 5]
-        marker = ['s', 'v', 'o', '^', 'x', '1']
+        per = [0, 1, 2, 3, 4, 5, 6]
+        marker = ['s', 'v', 'o', '^', 'x', '1', 'D']
         color = [
-            "#FF0000",  # red
-            "#00FF00",  # lime
-            "#0000FF",  # blue
             "#000000",  # black
+            "#FF0000",  # red
+            "#0000FF",  # blue
+            "#00A000",  # green
+            "#FF00FF",  # magenta
             "#900321",  # brown
-            "#FF00FF",  # green
+            "#FF8C00",  # orange
         ]
 
         for idx in range(num_of_algo):
             i = per[idx]
-            if _Ylabel == "succ_request_cnt":   # skip upper bound
+            if hide_UB or _Ylabel == "succ_request_cnt":   # skip upper bound
                 if per_algo_name[i][-2:] == "UB":
                     continue
             ax1.plot(
@@ -196,7 +189,7 @@ class ChartGenerator:
   
         for idx in range(num_of_algo):
             i = per[idx]
-            if _Ylabel == "succ_request_cnt":   # skip upper bound
+            if hide_UB or _Ylabel == "succ_request_cnt":   # skip upper bound
                 if per_algo_name[i][-2:] == "UB":
                     continue
             algo_name.append(per_algo_name[i])    # adjust the order
@@ -258,7 +251,7 @@ class ChartGenerator:
 if __name__ == "__main__":
     # data檔名 Y軸名稱 X軸名稱 Y軸要除多少(10的多少次方) Y軸起始座標 Y軸終止座標 Y軸座標間的間隔
     # ChartGenerator("numOfnodes_waitingTime.txt", "need #round", "#Request of a round", 0, 0, 25, 5)
-    Xlabels = ["entangle_prob"]
+    Xlabels = ["request_cnt", "time_limit", "tao", "fidelity_threshold", "avg_memory", "hop_count", "swap_prob"]
     Ylabels = ["fidelity_gain", "succ_request_cnt"]
     PathNames = ["Greedy"]
 
@@ -275,27 +268,14 @@ if __name__ == "__main__":
     LabelsName["min_fidelity"] = "Minimum Initial Fidelity"
     LabelsName["entangle_time"] = "Entangling Time"
     LabelsName["entangle_prob"] = "Entangling Probablity"
+    LabelsName["hop_count"] = "$\#$Hops"
 
     for Path in PathNames:
         for Xlabel in Xlabels:
             for Ylabel in Ylabels:
                 dataFileName = Path + '_' + Xlabel + '_' + Ylabel + '.ans'
-                if Xlabel == "request_cnt":
-                    (Ystart, Yend, Yinternal) = (5, 30, 5)
-                if Xlabel == "time_limit":
-                    (Ystart, Yend, Yinternal) = (5, 30, 5)
-                if Xlabel == "tao":
-                    (Ystart, Yend, Yinternal) = (5, 30, 5)
-                if Xlabel == "fidelity_threshold":
-                    (Ystart, Yend, Yinternal) = (5, 30, 5)
-                if Xlabel == "avg_memory":
-                    (Ystart, Yend, Yinternal) = (5, 30, 5)
-                if Xlabel == "min_fidelity":
-                    (Ystart, Yend, Yinternal) = (5, 30, 5)
-                if Xlabel == "swap_prob":
-                    (Ystart, Yend, Yinternal) = (5, 30, 5)
-                if Xlabel == "entangle_prob":
-                    (Ystart, Yend, Yinternal) = (0, 2e-4, 4e-5)
+                # Y 軸實際範圍由 Y_interval_settings 決定,這裡只是預設值
+                (Ystart, Yend, Yinternal) = (0, 30, 5)
 
                 ChartGenerator(dataFileName, Xlabel, Ylabel, LabelsName[Xlabel], LabelsName[Ylabel], 0, 0, Ystart, Yend, Yinternal)
 
