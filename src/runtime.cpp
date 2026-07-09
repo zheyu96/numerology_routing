@@ -80,7 +80,7 @@ int main(){
                 //     cerr<<"error:\tsystem proccess python error"<<endl;
                 //     exit(1);
                 // }
-                double A = 0.25, B = 0.75, tao = input_parameter["tao"], T = 10, n = 2;
+                double A = 0.25, B = 0.75, tao = input_parameter["tao"], T = 0.04, n = 2; // T_mem = 40 ms (paper Sec. VI)
 
                 Graph graph(num_nodes, time_limit, memory_lb, memory_up, A, B, n, T, tao);
 

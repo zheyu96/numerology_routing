@@ -417,12 +417,12 @@ int main(){
     change_parameter["num_nodes"] = {30, 40, 50, 60, 70};
     change_parameter["min_fidelity"] = {0.6, 0.7, 0.8, 0.9, 0.95};
     change_parameter["avg_memory"] = {4, 6, 8, 10, 12, 16, 20};
-    // change_parameter["tao"] = {0.3, 0.4, 0.5, 0.6, 0.7};
-    change_parameter["tao"] = {0.01,0.02,0.03,0.04,0.05};
+    // paper Fig. 3(g)-(h): slot duration delta = 1~5 ms
+    change_parameter["tao"] = {0.001, 0.002, 0.003, 0.004, 0.005};
     change_parameter["path_length"] = {3, 6, 9, 12, 15};
     change_parameter["swap_prob"] = {0.6, 0.7, 0.8, 0.9,0.95};
     change_parameter["fidelity_threshold"] = {0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85,0.9,0.95};
-    change_parameter["time_limit"] = {5,7, 9, 11, 13, 15,17,19};
+    change_parameter["time_limit"] = {7, 9, 11, 13, 15}; // paper Fig. 3(c)-(d)
     change_parameter["entangle_lambda"] = {0.0125, 0.025, 0.035, 0.045, 0.055, 0.065};
     change_parameter["entangle_time"] = {0.0001, 0.00025, 0.0004, 0.00055, 0.0007,0.00085,0.001};
     change_parameter["entangle_prob"] = {0.0001, 0.001, 0.01, 0.1, 1};
@@ -454,7 +454,7 @@ int main(){
         double entangle_prob = input_parameter["entangle_prob"];
         string filename = file_path + "input/round_" + to_string(r) + ".input";
         string command = "python3 graph_generator.py ";
-        double A = 0.25, B = 0.75, tao = default_setting["tao"], T = 10, n = 2;
+        double A = 0.25, B = 0.75, tao = default_setting["tao"], T = 0.04, n = 2; // T_mem = 40 ms (paper Sec. VI)
         // derandom
         string parameter = to_string(num_nodes);
         cerr << (command + filename + " " + parameter) << endl;
@@ -656,7 +656,7 @@ int main(){
 
 
 
-                    double A = 0.25, B = 0.75, tao = input_parameter["tao"], T = 10, n = 2;
+                    double A = 0.25, B = 0.75, tao = input_parameter["tao"], T = 0.04, n = 2; // T_mem = 40 ms (paper Sec. VI)
                     DBG_HERE("before Graph ctor");
                     Graph graph(filename, time_limit, swap_prob, avg_memory, min_fidelity, max_fidelity, fidelity_threshold, A, B, n, T, tao,Zmin,bucket_eps,time_eta,input_parameter["delta_P"],input_parameter["entangle_lambda"],input_parameter["entangle_time"]);
                     DBG_HERE("after Graph ctor");
