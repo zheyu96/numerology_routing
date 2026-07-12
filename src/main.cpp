@@ -454,7 +454,7 @@ int main(){
         double entangle_prob = input_parameter["entangle_prob"];
         string filename = file_path + "input/round_" + to_string(r) + ".input";
         string command = "python3 graph_generator.py ";
-        double A = 0.25, B = 0.75, tao = default_setting["tao"], T = 0.04, n = 2; // T_mem = 40 ms (paper Sec. VI)
+        double A = 0.25, B = 0.75, tao = default_setting["tao"], T = 10, n = 2;
         // derandom
         string parameter = to_string(num_nodes);
         cerr << (command + filename + " " + parameter) << endl;
@@ -656,7 +656,7 @@ int main(){
 
 
 
-                    double A = 0.25, B = 0.75, tao = input_parameter["tao"], T = 0.04, n = 2; // T_mem = 40 ms (paper Sec. VI)
+                    double A = 0.25, B = 0.75, tao = input_parameter["tao"], T = 10, n = 2;
                     DBG_HERE("before Graph ctor");
                     Graph graph(filename, time_limit, swap_prob, avg_memory, min_fidelity, max_fidelity, fidelity_threshold, A, B, n, T, tao,Zmin,bucket_eps,time_eta,input_parameter["delta_P"],input_parameter["entangle_lambda"],input_parameter["entangle_time"]);
                     DBG_HERE("after Graph ctor");
