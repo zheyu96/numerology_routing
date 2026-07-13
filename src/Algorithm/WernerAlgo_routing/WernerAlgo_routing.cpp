@@ -415,7 +415,7 @@ void WernerAlgo_routing::run() {
         //cerr << "\033[1;31m"<< "[WernerAlgo's parameter] : "<< dpp.Zmin<<" "<<dpp.eps_bucket<<" "<<dpp.eta<< "\033[0m"<< endl;
         int it=0;
         double eps=1e-4;
-        const int REUSE = 20;  // 每次 oracle 找到 shape 後重複灌 REUSE 次流量
+        const int REUSE = 1;  // 每次 oracle 找到 shape 後重複灌 REUSE 次流量
         while (obj+eps < 1.0) {
             it++;
             Shape_vector shape=separation_oracle();
