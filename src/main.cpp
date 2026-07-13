@@ -417,8 +417,8 @@ int main(){
     change_parameter["num_nodes"] = {30, 40, 50, 60, 70};
     change_parameter["min_fidelity"] = {0.6, 0.7, 0.8, 0.9, 0.95};
     change_parameter["avg_memory"] = {4, 6, 8, 10, 12, 16, 20};
-    // change_parameter["tao"] = {0.3, 0.4, 0.5, 0.6, 0.7};
-    change_parameter["tao"] = {0.01,0.02,0.03,0.04,0.05};
+    // Paper Fig. 3(g)-(h): slot duration delta = 1--5 ms.
+    change_parameter["tao"] = {0.001, 0.002, 0.003, 0.004, 0.005};
     change_parameter["path_length"] = {3, 6, 9, 12, 15};
     change_parameter["swap_prob"] = {0.6, 0.7, 0.8, 0.9,0.95};
     change_parameter["fidelity_threshold"] = {0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85,0.9,0.95};
@@ -438,6 +438,8 @@ int main(){
         int avg_memory = default_setting["avg_memory"];
         // int request_cnt = default_setting["request_cnt"];
         int time_limit = default_setting["time_limit"];
+        // time_limit denotes operation intervals; N intervals need N + 1 time points.
+        int time_point_count = time_limit + 1;
         double min_fidelity = default_setting["min_fidelity"];
         double max_fidelity = default_setting["max_fidelity"];
         double Zmin=default_setting["Zmin"];
@@ -454,7 +456,8 @@ int main(){
         double entangle_prob = input_parameter["entangle_prob"];
         string filename = file_path + "input/round_" + to_string(r) + ".input";
         string command = "python3 graph_generator.py ";
-        double A = 0.25, B = 0.75, tao = default_setting["tao"], T = 10, n = 2;
+        // Paper simulation setting: quantum-memory coherence time T_mem = 40 ms.
+        double A = 0.25, B = 0.75, tao = default_setting["tao"], T = 0.04, n = 2;
         // derandom
         string parameter = to_string(num_nodes);
         cerr << (command + filename + " " + parameter) << endl;
@@ -462,7 +465,7 @@ int main(){
             cerr<<"error:\tsystem proccess python error"<<endl;
             exit(1);
         }
-        Graph graph(filename, time_limit, swap_prob, avg_memory, min_fidelity, max_fidelity, fidelity_threshold, A, B, n, T, tao,Zmin,bucket_eps,time_eta,input_parameter["delta_P"],input_parameter["entangle_lambda"],input_parameter["entangle_time"]);
+        Graph graph(filename, time_point_count, swap_prob, avg_memory, min_fidelity, max_fidelity, fidelity_threshold, A, B, n, T, tao,Zmin,bucket_eps,time_eta,input_parameter["delta_P"],input_parameter["entangle_lambda"],input_parameter["entangle_time"]);
         // === 混合生成 4 類 request (threshold=0.8) ===
         // 設計原則：ZFA2 靠 purification 明顯領先，但非 purify 演算法仍有可通過的 request
         //
@@ -618,6 +621,8 @@ int main(){
                 int avg_memory = input_parameter["avg_memory"];
                 int request_cnt = input_parameter["request_cnt"];
                 int time_limit = input_parameter["time_limit"];
+                // time_limit denotes operation intervals; N intervals need N + 1 time points.
+                int time_point_count = time_limit + 1;
                 double min_fidelity = input_parameter["min_fidelity"];
                 double max_fidelity = input_parameter["max_fidelity"];
                 double Zmin = input_parameter["Zmin"];
@@ -656,9 +661,10 @@ int main(){
 
 
 
-                    double A = 0.25, B = 0.75, tao = input_parameter["tao"], T = 10, n = 2;
+                    // Paper simulation setting: quantum-memory coherence time T_mem = 40 ms.
+                    double A = 0.25, B = 0.75, tao = input_parameter["tao"], T = 0.04, n = 2;
                     DBG_HERE("before Graph ctor");
-                    Graph graph(filename, time_limit, swap_prob, avg_memory, min_fidelity, max_fidelity, fidelity_threshold, A, B, n, T, tao,Zmin,bucket_eps,time_eta,input_parameter["delta_P"],input_parameter["entangle_lambda"],input_parameter["entangle_time"]);
+                    Graph graph(filename, time_point_count, swap_prob, avg_memory, min_fidelity, max_fidelity, fidelity_threshold, A, B, n, T, tao,Zmin,bucket_eps,time_eta,input_parameter["delta_P"],input_parameter["entangle_lambda"],input_parameter["entangle_time"]);
                     DBG_HERE("after Graph ctor");
                     DBG_mem("after_graph");
 
