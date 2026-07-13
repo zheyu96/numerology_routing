@@ -388,7 +388,7 @@ int main(){
     string file_path = "../data/";
 
     map<string, double> default_setting;
-    default_setting["num_nodes"] = 75;
+    default_setting["num_nodes"] = 100;
     default_setting["request_cnt"] = 80;
     default_setting["entangle_lambda"] = 0.045;
     default_setting["time_limit"] = 13;
@@ -413,16 +413,16 @@ int main(){
     default_setting["hop_count"]=3;
     default_setting["delta_P"]=0.01;
     map<string, vector<double>> change_parameter;
-    change_parameter["request_cnt"] = {20, 40, 60, 80, 100};
+    change_parameter["request_cnt"] = {80,100,120,140,160};
     change_parameter["num_nodes"] = {30, 40, 50, 60, 70};
     change_parameter["min_fidelity"] = {0.6, 0.7, 0.8, 0.9, 0.95};
     change_parameter["avg_memory"] = {4, 6, 8, 10, 12, 16, 20};
-    // paper Fig. 3(g)-(h): slot duration delta = 1~5 ms
-    change_parameter["tao"] = {0.001, 0.002, 0.003, 0.004, 0.005};
+    // change_parameter["tao"] = {0.3, 0.4, 0.5, 0.6, 0.7};
+    change_parameter["tao"] = {0.01,0.02,0.03,0.04,0.05};
     change_parameter["path_length"] = {3, 6, 9, 12, 15};
     change_parameter["swap_prob"] = {0.6, 0.7, 0.8, 0.9,0.95};
     change_parameter["fidelity_threshold"] = {0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85,0.9,0.95};
-    change_parameter["time_limit"] = {7, 9, 11, 13, 15}; // paper Fig. 3(c)-(d)
+    change_parameter["time_limit"] = {5,7, 9, 11, 13, 15,17,19};
     change_parameter["entangle_lambda"] = {0.0125, 0.025, 0.035, 0.045, 0.055, 0.065};
     change_parameter["entangle_time"] = {0.0001, 0.00025, 0.0004, 0.00055, 0.0007,0.00085,0.001};
     change_parameter["entangle_prob"] = {0.0001, 0.001, 0.01, 0.1, 1};
