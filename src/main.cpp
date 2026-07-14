@@ -426,10 +426,13 @@ static Path shortest_path(Graph& graph, int src, int dst) {
 }
 
 // Fidelity estimator matching Shape::recursion_get_fidelity for the balanced
-// schedule used by the request filter.  Request generation deliberately has
-// no purification: every leaf starts from the raw elementary-link fidelity.
+// schedule used by the request filters.  With purify_rounds == 0 every leaf
+// starts from the raw elementary-link fidelity; purify_rounds > 0 pumps every
+// leaf that many times (paper Eq.(4), same model as the legacy purify-aware
+// generator) before decoherence.  Purification's extra time slots are not
+// modelled here, so keep purify_rounds small for honest estimates.
 static double estimate_balanced_fidelity(Graph& graph, const Path& path,
-                                         double tau) {
+                                         double tau, int purify_rounds = 0) {
     const double A = graph.get_A();
     const double B = graph.get_B();
     const double T = graph.get_T();
@@ -451,9 +454,23 @@ static double estimate_balanced_fidelity(Graph& graph, const Path& path,
         return left * right + (1.0 / 3.0) * (1.0 - left) * (1.0 - right);
     };
 
+    auto pump = [&](double F) -> double {
+        double Fbase = F, Fcur = F;
+        for(int r = 0; r < purify_rounds; r++) {
+            double num = Fcur * Fbase
+                       + (1.0 / 9.0) * (1.0 - Fcur) * (1.0 - Fbase);
+            double den = Fcur * Fbase
+                       + (1.0 / 3.0) * Fcur * (1.0 - Fbase)
+                       + (1.0 / 3.0) * (1.0 - Fcur) * Fbase
+                       + (5.0 / 9.0) * (1.0 - Fcur) * (1.0 - Fbase);
+            Fcur = num / den;
+        }
+        return Fcur;
+    };
+
     function<double(int, int)> solve = [&](int left, int right) -> double {
         if(left + 1 == right) {
-            double fidelity = graph.get_F_init(path[left], path[right]);
+            double fidelity = pump(graph.get_F_init(path[left], path[right]));
             return pass_tau(fidelity);
         }
         int mid = (left + right) / 2;
@@ -640,6 +657,296 @@ static vector<SDpair> generate_tau_stratified_requests(
     return requests;
 }
 
+// ===== Routing-favored workload（能力階梯過濾器）=====
+// 依「演算法能力階梯」分類每個 SD pair，讓每一級只有能力更強的演算法能服務：
+//   SP_OK       : 最短路徑(不 purify)在整個 tau sweep 都達標
+//                 → 所有演算法都能服務（維持 baseline 基本盤，benchmark 才有鑑別度）
+//   NEED_PURIFY : 最短路徑不 purify 在 tau_low 就過不了（fidelity 隨 tau 單調下降
+//                 ⇒ 整個 sweep 都過不了），purify(≤MAX_PURIFY_ROUNDS) 後 tau_mid 可過
+//                 → 只有會 purify 的 ZFA 系列（ZFA_UB / ZFA2 / ZFA_routing）能服務
+//   NEED_DETOUR : 所有最短路徑連 purify 都救不回，但存在 +DETOUR_SLACK hop 的
+//                 替代路徑不 purify 就在 tau_mid 達標
+//                 → path set 只含最短路徑，所以只有自由選路的 ZFA_routing 能服務
+//   NEED_BOTH   : 替代路徑也要 purify 才在 tau_mid 達標
+//                 → 只有 ZFA_routing 能服務，且必須 purify
+// 判定點：「過不了」用 tau_low（單調性 ⇒ 整個 sweep 都過不了）；「過得了」用
+// tau_mid（⇒ tau ≤ tau_mid 的實驗點保證可服務；tau > tau_mid 各類別自然退化）。
+enum class WorkloadClass { SP_OK, NEED_PURIFY, NEED_DETOUR, NEED_BOTH };
+
+struct RoutingFavoredCandidate {
+    SDpair sd;
+    int sp_hop = 0;
+    WorkloadClass cls = WorkloadClass::SP_OK;
+    // 各值皆為「該類所有候選路徑的最大 fidelity」，供分類與診斷用
+    double sp0_low = 0, sp0_mid = 0, sp0_high = 0;   // 最短路徑、不 purify
+    double spP_low = 0, spP_mid = 0;                 // 最短路徑、purify 後
+    double alt0_mid = 0, altP_mid = 0;               // 替代路徑（不 purify / purify）
+};
+
+static vector<SDpair> generate_routing_favored_requests(
+        Graph& graph, int request_count, vector<double> tau_values,
+        unsigned int seed) {
+    if(request_count <= 0 || tau_values.empty()) return {};
+    sort(tau_values.begin(), tau_values.end());
+    tau_values.erase(unique(tau_values.begin(), tau_values.end()), tau_values.end());
+
+    const double threshold = graph.get_fidelity_threshold();
+    const double tau_low = tau_values.front();
+    const double tau_mid = tau_values[tau_values.size() / 2];
+    const double tau_high = tau_values.back();
+    const int n = graph.get_num_nodes();
+
+    const int MAX_SP_HOP = 4;         // 最短路徑 hop 上限（time_limit 內可完成）
+    const int DETOUR_SLACK = 1;       // 替代路徑允許比最短路徑多的 hop 數
+    const int MAX_PURIFY_ROUNDS = 2;  // 分類時嘗試的 purify 輪數上限
+    const int TOPK = 5;               // 每類保留 fidelity 最高的幾條路徑做 purify 評估
+    const int MAX_PATHS_PER_PAIR = 20000;
+
+    auto bfs_dist = [&](int root) {
+        vector<int> dist(n, INF);
+        queue<int> que;
+        dist[root] = 0;
+        que.push(root);
+        while(!que.empty()) {
+            int u = que.front(); que.pop();
+            for(int v : graph.adj_list[u]) {
+                if(dist[v] > dist[u] + 1) {
+                    dist[v] = dist[u] + 1;
+                    que.push(v);
+                }
+            }
+        }
+        return dist;
+    };
+
+    map<WorkloadClass, vector<RoutingFavoredCandidate>> buckets;
+    int rejected_infeasible = 0;   // 連 ZFA_routing 都救不回
+    int rejected_tau_marginal = 0; // 不 purify 在 tau_low 可過但 tau_high 不行（模糊帶）
+
+    for(int dst = 0; dst < n; ++dst) {
+        vector<int> dist_to_dst = bfs_dist(dst);
+        for(int src = 0; src < dst; ++src) {
+            int sp = dist_to_dst[src];
+            if(sp < 1 || sp > MAX_SP_HOP) continue;
+            const int max_hop = sp + DETOUR_SLACK;
+
+            RoutingFavoredCandidate cand;
+            cand.sd = {src, dst};
+            cand.sp_hop = sp;
+            vector<pair<double, Path>> top_sp, top_alt;  // (f_mid, path)
+            int path_cnt = 0;
+
+            auto keep_topk = [&](vector<pair<double, Path>>& top,
+                                 double f, const Path& p) {
+                if((int)top.size() < TOPK) {
+                    top.push_back({f, p});
+                    return;
+                }
+                int worst = 0;
+                for(int i = 1; i < (int)top.size(); i++)
+                    if(top[i].first < top[worst].first) worst = i;
+                if(f > top[worst].first) top[worst] = {f, p};
+            };
+
+            // DFS 枚舉 hop ≤ max_hop 的所有 simple path（dist_to_dst 剪枝）
+            Path cur = {src};
+            vector<bool> vis(n, false);
+            vis[src] = true;
+            function<void(int)> dfs = [&](int u) {
+                if(path_cnt >= MAX_PATHS_PER_PAIR) return;
+                if(u == dst) {
+                    path_cnt++;
+                    int h = (int)cur.size() - 1;
+                    double f_mid = estimate_balanced_fidelity(graph, cur, tau_mid);
+                    if(h == sp) {
+                        cand.sp0_mid = max(cand.sp0_mid, f_mid);
+                        cand.sp0_low = max(cand.sp0_low,
+                            estimate_balanced_fidelity(graph, cur, tau_low));
+                        cand.sp0_high = max(cand.sp0_high,
+                            estimate_balanced_fidelity(graph, cur, tau_high));
+                        keep_topk(top_sp, f_mid, cur);
+                    } else {
+                        cand.alt0_mid = max(cand.alt0_mid, f_mid);
+                        keep_topk(top_alt, f_mid, cur);
+                    }
+                    return;
+                }
+                for(int v : graph.adj_list[u]) {
+                    if(vis[v]) continue;
+                    if((int)cur.size() + dist_to_dst[v] > max_hop) continue;
+                    vis[v] = true;
+                    cur.push_back(v);
+                    dfs(v);
+                    cur.pop_back();
+                    vis[v] = false;
+                }
+            };
+            dfs(src);
+            if(top_sp.empty()) continue;
+
+            // purify 評估只做在 top-K 路徑上（以 f_mid 排序的近似；pumping 對
+            // 每條 link 單調，排名通常一致，偏差只影響 workload 組成不影響正確性）
+            for(const auto& [f0, p] : top_sp) {
+                for(int rr = 1; rr <= MAX_PURIFY_ROUNDS; rr++) {
+                    cand.spP_mid = max(cand.spP_mid,
+                        estimate_balanced_fidelity(graph, p, tau_mid, rr));
+                    cand.spP_low = max(cand.spP_low,
+                        estimate_balanced_fidelity(graph, p, tau_low, rr));
+                }
+            }
+            for(const auto& [f0, p] : top_alt)
+                for(int rr = 1; rr <= MAX_PURIFY_ROUNDS; rr++)
+                    cand.altP_mid = max(cand.altP_mid,
+                        estimate_balanced_fidelity(graph, p, tau_mid, rr));
+
+            WorkloadClass cls;
+            if(cand.sp0_high + EPS >= threshold) {
+                cls = WorkloadClass::SP_OK;
+            } else if(cand.sp0_low + EPS < threshold
+                      && cand.spP_mid + EPS >= threshold) {
+                cls = WorkloadClass::NEED_PURIFY;
+            } else if(cand.spP_low + EPS < threshold
+                      && cand.alt0_mid + EPS >= threshold) {
+                cls = WorkloadClass::NEED_DETOUR;
+            } else if(cand.spP_low + EPS < threshold
+                      && cand.altP_mid + EPS >= threshold) {
+                cls = WorkloadClass::NEED_BOTH;
+            } else if(cand.sp0_low + EPS >= threshold) {
+                rejected_tau_marginal++;
+                continue;
+            } else {
+                rejected_infeasible++;
+                continue;
+            }
+
+            cand.cls = cls;
+            buckets[cls].push_back(cand);
+            RoutingFavoredCandidate rev = cand;
+            swap(rev.sd.first, rev.sd.second);
+            buckets[cls].push_back(rev);
+        }
+    }
+
+    auto cls_name = [](WorkloadClass c) {
+        switch(c) {
+            case WorkloadClass::SP_OK:       return "sp-ok";
+            case WorkloadClass::NEED_PURIFY: return "need-purify";
+            case WorkloadClass::NEED_DETOUR: return "need-detour";
+            case WorkloadClass::NEED_BOTH:   return "need-both";
+        }
+        return "unknown";
+    };
+    const vector<WorkloadClass> ALL_CLS = {
+        WorkloadClass::SP_OK, WorkloadClass::NEED_PURIFY,
+        WorkloadClass::NEED_DETOUR, WorkloadClass::NEED_BOTH};
+
+    cerr << "[routing-favored] tau low/mid/high=" << tau_low << "/" << tau_mid
+         << "/" << tau_high << " threshold=" << threshold
+         << " detour_slack=" << DETOUR_SLACK
+         << " max_purify_rounds=" << MAX_PURIFY_ROUNDS << endl;
+    for(WorkloadClass c : ALL_CLS)
+        cerr << "  " << cls_name(c) << " candidates=" << buckets[c].size() << endl;
+    cerr << "  rejected: infeasible=" << rejected_infeasible * 2
+         << " tau-marginal=" << rejected_tau_marginal * 2 << endl;
+    if(buckets[WorkloadClass::NEED_DETOUR].empty()
+       && buckets[WorkloadClass::NEED_BOTH].empty()) {
+        cerr << "[routing-favored] WARNING: no detour-advantaged pair exists; "
+             << "ZFA_routing has no exclusive request.  Widen the link-quality "
+             << "spread (e.g. lower min_fidelity) to create them." << endl;
+    }
+
+    mt19937 rng(seed);
+    for(auto& [cls, cands] : buckets)
+        shuffle(cands.begin(), cands.end(), rng);
+
+    // 每 20 個 request 的組成：6 sp-ok / 6 need-purify / 5 need-detour / 3 need-both
+    // （30/30/25/15%）。以 20 為週期打散，常用 request_cnt 前綴 80/100/120…
+    // 都保持這個比例。
+    vector<WorkloadClass> schedule;
+    while((int)schedule.size() < request_count) {
+        vector<WorkloadClass> cycle;
+        cycle.insert(cycle.end(), 6, WorkloadClass::SP_OK);
+        cycle.insert(cycle.end(), 6, WorkloadClass::NEED_PURIFY);
+        cycle.insert(cycle.end(), 5, WorkloadClass::NEED_DETOUR);
+        cycle.insert(cycle.end(), 3, WorkloadClass::NEED_BOTH);
+        shuffle(cycle.begin(), cycle.end(), rng);
+        schedule.insert(schedule.end(), cycle.begin(), cycle.end());
+    }
+    schedule.resize(request_count);
+
+    vector<SDpair> requests;
+    vector<RoutingFavoredCandidate> selected;
+    map<WorkloadClass, size_t> cursor;
+    map<WorkloadClass, int> selected_by_cls;
+
+    auto take_one = [&](initializer_list<WorkloadClass> order) {
+        for(WorkloadClass c : order) {
+            auto& cands = buckets[c];
+            if(cands.empty()) continue;
+            if(cursor[c] > 0 && cursor[c] % cands.size() == 0)
+                shuffle(cands.begin(), cands.end(), rng);
+            const RoutingFavoredCandidate cand = cands[cursor[c] % cands.size()];
+            cursor[c]++;
+            requests.push_back(cand.sd);
+            selected.push_back(cand);
+            selected_by_cls[c]++;
+            return true;
+        }
+        return false;
+    };
+
+    for(WorkloadClass c : schedule) {
+        bool ok = false;
+        // fallback 順序：先往「同樣偏好 routing」的類別找，最後才退到 sp-ok
+        switch(c) {
+            case WorkloadClass::SP_OK:
+                ok = take_one({WorkloadClass::SP_OK, WorkloadClass::NEED_PURIFY,
+                               WorkloadClass::NEED_DETOUR, WorkloadClass::NEED_BOTH});
+                break;
+            case WorkloadClass::NEED_PURIFY:
+                ok = take_one({WorkloadClass::NEED_PURIFY, WorkloadClass::NEED_BOTH,
+                               WorkloadClass::NEED_DETOUR, WorkloadClass::SP_OK});
+                break;
+            case WorkloadClass::NEED_DETOUR:
+                ok = take_one({WorkloadClass::NEED_DETOUR, WorkloadClass::NEED_BOTH,
+                               WorkloadClass::NEED_PURIFY, WorkloadClass::SP_OK});
+                break;
+            case WorkloadClass::NEED_BOTH:
+                ok = take_one({WorkloadClass::NEED_BOTH, WorkloadClass::NEED_DETOUR,
+                               WorkloadClass::NEED_PURIFY, WorkloadClass::SP_OK});
+                break;
+        }
+        if(!ok)
+            throw runtime_error("routing-favored filter: every bucket is empty");
+    }
+
+    map<int, int> hop_dist;
+    for(const auto& c : selected) hop_dist[c.sp_hop]++;
+    // 預測各能力等級在 tau_mid 可服務的 request 數（尚未考慮資源競爭）
+    int base_low = 0, base_mid = 0, base_high = 0, zfa_mid = 0, routing_mid = 0;
+    for(const auto& c : selected) {
+        if(c.sp0_low + EPS >= threshold) base_low++;
+        if(c.sp0_mid + EPS >= threshold) base_mid++;
+        if(c.sp0_high + EPS >= threshold) base_high++;
+        if(max(c.sp0_mid, c.spP_mid) + EPS >= threshold) zfa_mid++;
+        if(max(max(c.sp0_mid, c.spP_mid),
+               max(c.alt0_mid, c.altP_mid)) + EPS >= threshold) routing_mid++;
+    }
+
+    cerr << "[routing-favored] selected=" << requests.size() << " mix:";
+    for(WorkloadClass c : ALL_CLS)
+        cerr << " " << cls_name(c) << "=" << selected_by_cls[c];
+    cerr << endl << "[routing-favored] sp-hop distribution:";
+    for(auto [hop, count] : hop_dist) cerr << " " << hop << "hop=" << count;
+    cerr << endl << "[routing-favored] predicted servable (before competition):"
+         << " @tau_mid SP-no-purify=" << base_mid
+         << " ZFA(purify)=" << zfa_mid
+         << " ZFA_routing=" << routing_mid << "/" << requests.size()
+         << " | SP-no-purify @tau_low=" << base_low
+         << " @tau_high=" << base_high << endl;
+
+    return requests;
+}
 int main(){
     string file_path = "../data/";
 
@@ -718,7 +1025,7 @@ int main(){
             exit(1);
         }
         Graph graph(filename, time_limit, swap_prob, avg_memory, min_fidelity, max_fidelity, fidelity_threshold, A, B, n, T, tao,Zmin,bucket_eps,time_eta,input_parameter["delta_P"],input_parameter["entangle_lambda"],input_parameter["entangle_time"]);
-#if 0
+#if 0  // Legacy purification-aware request generator (disabled)
         // === 混合生成 4 類 request (threshold=0.8) ===
         // 設計原則：ZFA2 靠 purification 明顯領先，但非 purify 演算法仍有可通過的 request
         //
@@ -836,24 +1143,36 @@ int main(){
         // Build one deterministic workload per topology and classify every
         // candidate against the complete tau sweep.  Every experiment point
         // later reuses this exact request sequence.
-        const int total_cnt = 200;  // >= max(change_parameter["request_cnt"])
-        default_requests[r] = generate_tau_stratified_requests(
-            graph, total_cnt, change_parameter["tao"],
-            0x5EEDu + static_cast<unsigned int>(r));
+        // This is only an offline candidate pool.  It does not change the
+        // online request_cnt passed to any algorithm.
+        const int request_pool_size = 200;
+        // true : 能力階梯 workload（sp-ok / need-purify / need-detour / need-both）
+        // false: 原本的 tau 分層 workload（不 purify、只看最短路徑）
+        const bool routing_favored_workload = true;
+        default_requests[r] = routing_favored_workload
+            ? generate_routing_favored_requests(
+                  graph, request_pool_size, change_parameter["tao"],
+                  0x5EEDu + static_cast<unsigned int>(r))
+            : generate_tau_stratified_requests(
+                  graph, request_pool_size, change_parameter["tao"],
+                  0x5EEDu + static_cast<unsigned int>(r));
 
         map<int, int> hop_dist;
         for(const auto& sd : default_requests[r])
             hop_dist[graph.distance(sd.first, sd.second)]++;
         cerr << "========== Request Generation Done ==========\n"
              << "  total=" << default_requests[r].size()
-             << " | generator=tau-stratified-fixed-workload\n"
-             << "  mix (no purification): 50% robust, "
-             << "30% mid-only, 20% low-only\n"
+             << " | generator="
+             << (routing_favored_workload ? "routing-favored-capability-ladder"
+                                          : "tau-stratified-fixed-workload") << "\n"
+             << (routing_favored_workload
+                 ? "  mix: 30% sp-ok, 30% need-purify, 25% need-detour, 15% need-both\n"
+                 : "  mix (no purification): 50% robust, 30% mid-only, 20% low-only\n")
              << "  hop distribution:";
         for(const auto& [hop, count] : hop_dist)
             cerr << " " << hop << "hop=" << count;
         cerr << "\n================================================" << endl;
-        assert((int)default_requests[r].size() == total_cnt);
+        assert((int)default_requests[r].size() == request_pool_size);
     }
 
 

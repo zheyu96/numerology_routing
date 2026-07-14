@@ -120,10 +120,16 @@ Shape_vector WernerAlgo_routing::separation_oracle(){
         if(it == shape_purify_map.end()){
             shape_purify_map[todo_shape] = best_purify_rounds;
         } else {
-            bool new_has = false, old_has = false;
-            for(int r : best_purify_rounds) if(r > 0) new_has = true;
-            for(int r : it->second) if(r > 0) old_has = true;
-            if(new_has && !old_has)
+            // 同一個 Shape_vector（節點+區間）可能同時來自「pur=0 leaf 經 CONT
+            // 延長」與「purify leaf」：區間完全相同、key 相同。兩者都通過了
+            // Zhat（預測 fidelity 皆達標），此時輪數少的 prob 高又省記憶體，
+            // 對 fidelity_gain = W(fid)×pr 嚴格較優 → 保留總輪數少的版本。
+            // （舊版只往 purify 方向覆寫，是單向棘輪：LP 灌在 no-purify 上的
+            //   流量會在 rounding 時整批被升級成 purify 執行。）
+            int new_sum = 0, old_sum = 0;
+            for(int r : best_purify_rounds) new_sum += max(r, 0);
+            for(int r : it->second) old_sum += max(r, 0);
+            if(new_sum < old_sum)
                 it->second = best_purify_rounds;
         }
     }
@@ -167,6 +173,20 @@ void WernerAlgo_routing::run_dp_in_t(const DPParam& dpp,int t) {
         }
     };
 
+    // (t-1) 層每個 cell 的最小 Z label 位置：merge 的「可行性保底名額」。
+    // 前綴改按 J 代理值 (Z²−P) 排序後，高 tau 時前綴內可能全是接近 Zhat 的
+    // 低純化 label，往上 merge 全數超標；保底名額讓 purify 最兇（Z 最小）的
+    // label 一定能參加 merge，oracle 才不會在長路徑上空手而回。
+    vector<vector<int>> zmin_prev(n, vector<int>(n, -1));
+    for(int a=0;a<n;a++)
+        for(int b=0;b<n;b++){
+            const auto& L = DP_table[t-1][a][b];
+            for(int i=0;i<(int)L.size();i++)
+                if(zmin_prev[a][b] < 0 || L[i].Z < L[zmin_prev[a][b]].Z)
+                    zmin_prev[a][b] = i;
+        }
+    vector<int> ids1, ids2;  // merge 用的 label index buffer（迴圈間重用）
+
     // -------- 全圖 all-pairs：只算 a<b，[b][a] 由鏡像複製 --------
     // 網路無向、merge/leaf 的 B/Z/P 公式皆對稱，所以 [b][a] 恆為 [a][b] 的
     // 逐元素鏡像（a/b 互換、left_id/right_id 互換），維持這個不變量後
@@ -199,8 +219,9 @@ void WernerAlgo_routing::run_dp_in_t(const DPParam& dpp,int t) {
             }
             //merge：每個 swap 節點 k 有自己的候選配額，避免舊版「候選額度被
             //  低編號 k 先搶光、高編號節點永遠當不了 swap 點」的系統性偏差。
-            //  cell 內 label 經 bucket_by_ZP 後按 Z 遞增排序，取前綴組合即是
-            //  各 k 中 fidelity 最好的一批。
+            //  cell 內 label 經 bucket_by_ZP 後按 J 代理值 (Z²−P) 遞增排序，
+            //  取前綴即是各 k 中「eval_best_J 最可能選中」的一批；另補一個
+            //  Z 最小 label 的保底名額（見 zmin_prev 註解）。
             int valid_k = 0;
             for(int k=0;k<n;k++){
                 if(k==a||k==b) continue;
@@ -218,8 +239,13 @@ void WernerAlgo_routing::run_dp_in_t(const DPParam& dpp,int t) {
                     double swap_prob=log(graph.get_node_swap_prob(k));
                     int lim1=min((int)L1.size(), side);
                     int lim2=min((int)L2.size(), side);
-                    for(int lid=0;lid<lim1;lid++)
-                        for(int rid=0;rid<lim2;rid++){
+                    ids1.clear(); ids2.clear();
+                    for(int i=0;i<lim1;i++) ids1.push_back(i);
+                    if(zmin_prev[a][k] >= lim1) ids1.push_back(zmin_prev[a][k]);
+                    for(int i=0;i<lim2;i++) ids2.push_back(i);
+                    if(zmin_prev[k][b] >= lim2) ids2.push_back(zmin_prev[k][b]);
+                    for(int lid : ids1)
+                        for(int rid : ids2){
                             const auto& left_seg=L1[lid];
                             const auto& right_seg=L2[rid];
                             double Zp=sqrt((left_seg.Z+dpp.eta)*(left_seg.Z+dpp.eta)+
@@ -303,8 +329,12 @@ void WernerAlgo_routing::bucket_by_ZP(vector<ZLabel>& cand) {
     for(const auto& L:buckets)
         bucketed.push_back(L.second);
     //pareto_prune_byZ(bucketed);
+    // 排序鍵 = J 的 log 主體 Z²−P（eval_best_J 的 J=(α+B)·exp(Z²−P)，同 cell
+    // 同 t 的 α、B 差異有限）。舊版按 Z 遞增排，Z 最小 = purify 最兇的 label
+    // 永遠佔住 merge 的 per-k 前綴，導致「不 purify 也達標」的組合在中間層就
+    // 被剪光，rounding 只剩 over-purify 的 shape（prob 崩、memory 爆）。
     sort(bucketed.begin(), bucketed.end(), [](const ZLabel& x, const ZLabel& y){
-        return x.Z < y.Z;
+        return x.Z * x.Z - x.P < y.Z * y.Z - y.P;
     });
     cand.swap(bucketed);
 }
