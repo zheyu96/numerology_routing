@@ -701,7 +701,14 @@ void WernerAlgo2::run() {
                 if (!experiment_label.empty()) {
                     log_file << "=== Experiment: " << experiment_label << " ===" << endl;
                 }
-                log_file << "--- Accepted Requests (total: " << purify_log_entries.size() << ") ---" << endl;
+                // finished contains every request accepted in this rounding
+                // pass.  purify_log_entries intentionally contains only the
+                // accepted requests that actually used purification, so using
+                // its size as the accepted total incorrectly prints zero for
+                // no-purification experiments.
+                log_file << "--- Accepted Requests (total: " << finished.size()
+                         << ", purified: " << purify_log_entries.size() << ") ---" << endl;
+                log_file << "--- Purified Request Details ---" << endl;
                 for (auto& e : purify_log_entries) {
                     log_file << "  SD=(" << e.src << "," << e.dst << ") hop=" << e.hop
                              << " purified=" << (e.has_purify ? "YES" : "NO") << endl;
