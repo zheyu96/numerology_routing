@@ -384,6 +384,262 @@ vector<SDpair> generate_requests_purify_needed(Graph &graph, int requests_cnt, i
     return requests;
 }
 
+// A tau sweep must use the same workload at every x-axis point.  Build that
+// workload once, but classify every source/destination pair against the whole
+// sweep instead of filtering at only the default tau.
+enum class RequestTier {
+    ROBUST,             // feasible at the largest tau
+    MID_ONLY,           // feasible at the median tau, not at the largest tau
+    LOW_ONLY            // feasible at the smallest tau only
+};
+
+struct RequestCandidate {
+    SDpair sd;
+    int hop = 0;
+    RequestTier tier = RequestTier::LOW_ONLY;
+};
+
+static Path shortest_path(Graph& graph, int src, int dst) {
+    const int n = graph.get_num_nodes();
+    vector<int> parent(n, -1);
+    queue<int> q;
+    parent[src] = src;
+    q.push(src);
+
+    while(!q.empty()) {
+        int u = q.front();
+        q.pop();
+        if(u == dst) break;
+        for(int v : graph.adj_list[u]) {
+            if(parent[v] != -1) continue;
+            parent[v] = u;
+            q.push(v);
+        }
+    }
+    if(parent[dst] == -1) return {};
+
+    Path path;
+    for(int v = dst; v != src; v = parent[v]) path.push_back(v);
+    path.push_back(src);
+    reverse(path.begin(), path.end());
+    return path;
+}
+
+// Fidelity estimator matching Shape::recursion_get_fidelity for the balanced
+// schedule used by the request filter.  Request generation deliberately has
+// no purification: every leaf starts from the raw elementary-link fidelity.
+static double estimate_balanced_fidelity(Graph& graph, const Path& path,
+                                         double tau) {
+    const double A = graph.get_A();
+    const double B = graph.get_B();
+    const double T = graph.get_T();
+    const double exponent = graph.get_n();
+
+    auto t2F = [&](double t) -> double {
+        if(t >= 1e5) return 0.0;
+        return A + B * exp(-pow(t / T, exponent));
+    };
+    auto F2t = [&](double F) -> double {
+        if(F <= A + EPS) return 1e9;
+        return T * pow(-log((F - A) / B), 1.0 / exponent);
+    };
+    auto pass_tau = [&](double F) -> double {
+        return t2F(F2t(F) + tau);
+    };
+    auto swap_fidelity = [&](double left, double right) -> double {
+        if(left <= A + EPS || right <= A + EPS) return 0.0;
+        return left * right + (1.0 / 3.0) * (1.0 - left) * (1.0 - right);
+    };
+
+    function<double(int, int)> solve = [&](int left, int right) -> double {
+        if(left + 1 == right) {
+            double fidelity = graph.get_F_init(path[left], path[right]);
+            return pass_tau(fidelity);
+        }
+        int mid = (left + right) / 2;
+        double left_fidelity = solve(left, mid);
+        double right_fidelity = solve(mid, right);
+        return swap_fidelity(pass_tau(left_fidelity), pass_tau(right_fidelity));
+    };
+
+    return solve(0, (int)path.size() - 1);
+}
+
+static vector<SDpair> generate_tau_stratified_requests(
+        Graph& graph, int request_count, vector<double> tau_values,
+        unsigned int seed) {
+    if(request_count <= 0 || tau_values.empty()) return {};
+    sort(tau_values.begin(), tau_values.end());
+    tau_values.erase(unique(tau_values.begin(), tau_values.end()), tau_values.end());
+
+    const double threshold = graph.get_fidelity_threshold();
+    const double tau_low = tau_values.front();
+    const double tau_mid = tau_values[tau_values.size() / 2];
+    const double tau_high = tau_values.back();
+    const int n = graph.get_num_nodes();
+
+    map<RequestTier, vector<RequestCandidate>> buckets;
+    map<int, int> all_hops;
+    int rejected_at_low_tau = 0;
+
+    // Use unordered node pairs for classification, then add both directions.
+    // Direction is symmetric physically but keeping both prevents orientation
+    // bias in algorithms whose tie-breaking depends on node order.
+    for(int src = 0; src < n; ++src) {
+        for(int dst = src + 1; dst < n; ++dst) {
+            Path path = shortest_path(graph, src, dst);
+            if(path.size() < 2) continue;
+
+            int hop = (int)path.size() - 1;
+            double high_fidelity = estimate_balanced_fidelity(graph, path, tau_high);
+            double mid_fidelity = estimate_balanced_fidelity(graph, path, tau_mid);
+            double low_fidelity = estimate_balanced_fidelity(graph, path, tau_low);
+
+            RequestTier tier;
+            if(high_fidelity + EPS >= threshold)
+                tier = RequestTier::ROBUST;
+            else if(mid_fidelity + EPS >= threshold)
+                tier = RequestTier::MID_ONLY;
+            else if(low_fidelity + EPS >= threshold)
+                tier = RequestTier::LOW_ONLY;
+            else {
+                rejected_at_low_tau++;
+                continue;
+            }
+
+            buckets[tier].push_back({{src, dst}, hop, tier});
+            buckets[tier].push_back({{dst, src}, hop, tier});
+            all_hops[hop] += 2;
+        }
+    }
+
+    mt19937 rng(seed);
+    for(auto& [tier, candidates] : buckets)
+        shuffle(candidates.begin(), candidates.end(), rng);
+
+    auto tier_name = [](RequestTier tier) {
+        switch(tier) {
+            case RequestTier::ROBUST: return "robust";
+            case RequestTier::MID_ONLY: return "mid-only";
+            case RequestTier::LOW_ONLY: return "low-only";
+        }
+        return "unknown";
+    };
+
+    cerr << "[request-filter] tau range=" << tau_low << ".." << tau_high
+         << " mid=" << tau_mid << " threshold=" << threshold
+         << " purification=disabled" << endl;
+    for(RequestTier tier : {RequestTier::ROBUST, RequestTier::MID_ONLY,
+                            RequestTier::LOW_ONLY}) {
+        cerr << "  " << tier_name(tier) << " candidates=" << buckets[tier].size() << endl;
+    }
+    cerr << "  rejected-even-at-low-tau pairs=" << rejected_at_low_tau * 2 << endl;
+
+    if(buckets[RequestTier::ROBUST].empty()) {
+        cerr << "[request-filter] WARNING: no request is feasible at maximum tau="
+             << tau_high << "; a non-zero high-tau result cannot be guaranteed with "
+             << "the current physical parameters." << endl;
+    }
+
+    // Half of the workload is feasible at tau_high without purification.  The
+    // other half preserves medium/low-tau stress cases so the curve still
+    // measures degradation rather than becoming an all-easy benchmark.
+    map<RequestTier, int> target;
+    target[RequestTier::ROBUST] = request_count * 50 / 100;
+    target[RequestTier::MID_ONLY] = request_count * 30 / 100;
+    target[RequestTier::LOW_ONLY] = request_count
+        - target[RequestTier::ROBUST]
+        - target[RequestTier::MID_ONLY];
+
+    vector<SDpair> requests;
+    map<RequestTier, size_t> cursor;
+    map<RequestTier, int> selected_by_tier;
+
+    auto append_from = [&](RequestTier preferred, int count,
+                           initializer_list<RequestTier> fallback_order) {
+        for(int k = 0; k < count; ++k) {
+            RequestTier chosen = preferred;
+            bool found = false;
+            for(RequestTier candidate_tier : fallback_order) {
+                if(!buckets[candidate_tier].empty()) {
+                    chosen = candidate_tier;
+                    found = true;
+                    break;
+                }
+            }
+            if(!found) return;
+
+            auto& candidates = buckets[chosen];
+            if(cursor[chosen] > 0 && cursor[chosen] % candidates.size() == 0)
+                shuffle(candidates.begin(), candidates.end(), rng);
+            const auto& candidate = candidates[cursor[chosen] % candidates.size()];
+            cursor[chosen]++;
+            requests.push_back(candidate.sd);
+            selected_by_tier[chosen]++;
+        }
+    };
+
+    // Interleave each group of 20 requests (10/6/4).  Consequently the common
+    // request-count prefixes 80/100/120/... preserve the intended mix and the
+    // 50% robust high-tau guarantee.
+    vector<RequestTier> tier_schedule;
+    while((int)tier_schedule.size() + 20 <= request_count) {
+        vector<RequestTier> cycle;
+        cycle.insert(cycle.end(), 10, RequestTier::ROBUST);
+        cycle.insert(cycle.end(), 6, RequestTier::MID_ONLY);
+        cycle.insert(cycle.end(), 4, RequestTier::LOW_ONLY);
+        shuffle(cycle.begin(), cycle.end(), rng);
+        tier_schedule.insert(tier_schedule.end(), cycle.begin(), cycle.end());
+    }
+    for(RequestTier tier : {RequestTier::ROBUST, RequestTier::MID_ONLY,
+                            RequestTier::LOW_ONLY}) {
+        int already = count(tier_schedule.begin(), tier_schedule.end(), tier);
+        int missing = max(0, target[tier] - already);
+        tier_schedule.insert(tier_schedule.end(), missing, tier);
+    }
+    shuffle(tier_schedule.begin() + (tier_schedule.size() / 20) * 20,
+            tier_schedule.end(), rng);
+
+    for(RequestTier tier : tier_schedule) {
+        if(tier == RequestTier::ROBUST)
+            append_from(tier, 1, {RequestTier::ROBUST, RequestTier::MID_ONLY,
+                                  RequestTier::LOW_ONLY});
+        else if(tier == RequestTier::MID_ONLY)
+            append_from(tier, 1, {RequestTier::MID_ONLY, RequestTier::ROBUST,
+                                  RequestTier::LOW_ONLY});
+        else
+            append_from(tier, 1, {RequestTier::LOW_ONLY, RequestTier::MID_ONLY,
+                                  RequestTier::ROBUST});
+    }
+
+    if((int)requests.size() != request_count) {
+        throw runtime_error("request filter found no pair feasible even at minimum tau");
+    }
+    map<int, int> selected_hops;
+    map<double, int> predicted_feasible;
+    for(const SDpair& sd : requests) {
+        Path path = shortest_path(graph, sd.first, sd.second);
+        selected_hops[(int)path.size() - 1]++;
+        for(double tau : tau_values) {
+            double fidelity = estimate_balanced_fidelity(graph, path, tau);
+            if(fidelity + EPS >= threshold) predicted_feasible[tau]++;
+        }
+    }
+
+    cerr << "[request-filter] selected=" << requests.size() << " tiers:";
+    for(RequestTier tier : {RequestTier::ROBUST, RequestTier::MID_ONLY,
+                            RequestTier::LOW_ONLY})
+        cerr << " " << tier_name(tier) << "=" << selected_by_tier[tier];
+    cerr << endl << "[request-filter] selected hop distribution:";
+    for(auto [hop, count] : selected_hops) cerr << " " << hop << "hop=" << count;
+    cerr << endl << "[request-filter] predicted feasible (before competition):";
+    for(auto [tau, count] : predicted_feasible)
+        cerr << " tau=" << tau << ":" << count << "/" << requests.size();
+    cerr << endl;
+
+    return requests;
+}
+
 int main(){
     string file_path = "../data/";
 
@@ -466,6 +722,7 @@ int main(){
             exit(1);
         }
         Graph graph(filename, time_point_count, swap_prob, avg_memory, min_fidelity, max_fidelity, fidelity_threshold, A, B, n, T, tao,Zmin,bucket_eps,time_eta,input_parameter["delta_P"],input_parameter["entangle_lambda"],input_parameter["entangle_time"]);
+#if 0
         // === 混合生成 4 類 request (threshold=0.8) ===
         // 設計原則：ZFA2 靠 purification 明顯領先，但非 purify 演算法仍有可通過的 request
         //
@@ -578,6 +835,29 @@ int main(){
                  << "\033[0m" << endl;
         }
         assert(!default_requests[r].empty());
+#endif
+
+        // Build one deterministic workload per topology and classify every
+        // candidate against the complete tau sweep.  Every experiment point
+        // later reuses this exact request sequence.
+        const int total_cnt = 200;  // >= max(change_parameter["request_cnt"])
+        default_requests[r] = generate_tau_stratified_requests(
+            graph, total_cnt, change_parameter["tao"],
+            0x5EEDu + static_cast<unsigned int>(r));
+
+        map<int, int> hop_dist;
+        for(const auto& sd : default_requests[r])
+            hop_dist[graph.distance(sd.first, sd.second)]++;
+        cerr << "========== Request Generation Done ==========\n"
+             << "  total=" << default_requests[r].size()
+             << " | generator=tau-stratified-fixed-workload\n"
+             << "  mix (no purification): 50% robust, "
+             << "30% mid-only, 20% low-only\n"
+             << "  hop distribution:";
+        for(const auto& [hop, count] : hop_dist)
+            cerr << " " << hop << "hop=" << count;
+        cerr << "\n================================================" << endl;
+        assert((int)default_requests[r].size() == total_cnt);
     }
 
 
