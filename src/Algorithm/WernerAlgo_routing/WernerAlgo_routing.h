@@ -17,7 +17,7 @@ using namespace std;
 
 /**
  * WernerAlgo（全時間存版）
- * - DP 表：L_all[t][a][b] = 非支配候選集合（shared_ptr<ZLabel>）
+ * - DP 表：L_all[t][a][b] = 各 bucket 的最小 B 代表 label
  * - ZLabel 內含回溯指標（left/right/prev）可重建 shape
  * - 外部 API / run 流程比照 MyAlgo1
  *
@@ -79,10 +79,16 @@ private:
     void run_dp_in_t(const DPParam& dpp,int t);
 
     // ===== 基本操作（Pareto / 分桶 / 存儲 / 回溯 / 評分） =====
-    void pareto_prune_byZ(vector<ZLabel>& cand);
     void bucket_by_ZP(vector<ZLabel>& cand);
     pair<long long,long long> bucket_key(const ZLabel& label) const;
     void initialize_bucket_minima();
+
+    // Rounding uses exact physical values rather than the bucketed DP proxy.
+    // Remove purification rounds only when the exact expected gain improves.
+    double exact_candidate_gain(const Shape_vector& shape,
+                                const vector<int>& purify_rounds);
+    vector<int> tighten_purification(const Shape_vector& shape,
+                                     const vector<int>& purify_rounds);
 
     Shape_vector backtrack_shape(ZLabel leaf, vector<int>& out_purify_rounds);
     int split_dis(int s,int d,const WernerAlgo_routing::ZLabel& L);

@@ -322,31 +322,6 @@ void WernerAlgo_routing::run_dp_in_t_legacy(const DPParam& dpp,int t) {
 
 void WernerAlgo_routing::run_dp_in_t(const DPParam& dpp, int t) {
     const int node_count = (int)graph.get_num_nodes();
-    const size_t ROUTING_LABEL_BUDGET = 48;
-    const int MERGE_SIDE_BUDGET = 6;
-
-    auto diverse_indices = [&](const vector<ZLabel>& source) {
-        vector<int> ids;
-        auto add = [&](int id) {
-            if (id >= 0 && find(ids.begin(), ids.end(), id) == ids.end())
-                ids.push_back(id);
-        };
-        const int quota = max(1, MERGE_SIDE_BUDGET / 3);
-
-        // DP cells are already ordered by the J proxy.
-        for (int i = 0; i < min(quota, (int)source.size()); ++i) add(i);
-
-        vector<int> order(source.size());
-        iota(order.begin(), order.end(), 0);
-        partial_sort(order.begin(), order.begin() + min(quota, (int)order.size()), order.end(),
-            [&](int lhs, int rhs) { return source[lhs].Z < source[rhs].Z; });
-        for (int i = 0; i < min(quota, (int)order.size()); ++i) add(order[i]);
-
-        partial_sort(order.begin(), order.begin() + min(quota, (int)order.size()), order.end(),
-            [&](int lhs, int rhs) { return source[lhs].B < source[rhs].B; });
-        for (int i = 0; i < min(quota, (int)order.size()); ++i) add(order[i]);
-        return ids;
-    };
 
     for (int a = 0; a < node_count; ++a) {
         for (int b = a + 1; b < node_count; ++b) {
@@ -356,6 +331,8 @@ void WernerAlgo_routing::run_dp_in_t(const DPParam& dpp, int t) {
             auto retain_non_base = [&](const ZLabel& label) {
                 const auto key = bucket_key(label);
                 auto it = non_base_buckets.find(key);
+                // Only labels in the same bucket compete: retain the one with
+                // minimum B.  Representatives of different buckets all stay.
                 if (it == non_base_buckets.end() || label.B < it->second.B)
                     non_base_buckets[key] = label;
             };
@@ -390,11 +367,10 @@ void WernerAlgo_routing::run_dp_in_t(const DPParam& dpp, int t) {
                 const auto& right = DP_table[t - 1][k][b];
                 if (left.empty() || right.empty()) continue;
                 const double swap_log_probability = log(graph.get_node_swap_prob(k));
-                const vector<int> left_ids = diverse_indices(left);
-                const vector<int> right_ids = diverse_indices(right);
 
-                for (int left_id : left_ids) {
-                    for (int right_id : right_ids) {
+                // Every retained bucket representative participates in merge.
+                for (int left_id = 0; left_id < (int)left.size(); ++left_id) {
+                    for (int right_id = 0; right_id < (int)right.size(); ++right_id) {
                         const double left_W = left[left_id].Z + dpp.eta;
                         const double right_W = right[right_id].Z + dpp.eta;
                         const double Z = sqrt(left_W * left_W + right_W * right_W);
@@ -412,31 +388,6 @@ void WernerAlgo_routing::run_dp_in_t(const DPParam& dpp, int t) {
             for (const auto& entry : non_base_buckets)
                 representatives.push_back(entry.second);
 
-            if (representatives.size() > ROUTING_LABEL_BUDGET) {
-                map<pair<long long,long long>, ZLabel> selected;
-                auto retain = [&](const ZLabel& label) {
-                    if (selected.size() >= ROUTING_LABEL_BUDGET) return;
-                    selected.emplace(bucket_key(label), label);
-                };
-                const size_t quota = ROUTING_LABEL_BUDGET / 3;
-                sort(representatives.begin(), representatives.end(), [](const ZLabel& x, const ZLabel& y) {
-                    return x.Z * x.Z - x.P < y.Z * y.Z - y.P;
-                });
-                for (size_t i = 0; i < min(quota, representatives.size()); ++i) retain(representatives[i]);
-                sort(representatives.begin(), representatives.end(), [](const ZLabel& x, const ZLabel& y) {
-                    return x.Z < y.Z;
-                });
-                for (size_t i = 0; i < representatives.size() && selected.size() < 2 * quota; ++i)
-                    retain(representatives[i]);
-                sort(representatives.begin(), representatives.end(), [](const ZLabel& x, const ZLabel& y) {
-                    return x.B < y.B;
-                });
-                for (const auto& label : representatives) retain(label);
-
-                representatives.clear();
-                for (const auto& entry : selected) representatives.push_back(entry.second);
-            }
-
             labels.insert(labels.end(), representatives.begin(), representatives.end());
             sort(labels.begin(), labels.end(), [](const ZLabel& x, const ZLabel& y) {
                 return x.Z * x.Z - x.P < y.Z * y.Z - y.P;
@@ -452,23 +403,6 @@ void WernerAlgo_routing::run_dp_in_t(const DPParam& dpp, int t) {
             DP_table[t][b][a] = std::move(mirrored);
         }
     }
-}
-
-void WernerAlgo_routing::pareto_prune_byZ(vector<ZLabel>& cand) {
-    if (cand.empty()) return;
-    sort(cand.begin(), cand.end(), [](const ZLabel& x, const ZLabel& y){
-        if(x.Z!=y.Z) return x.Z < y.Z;
-        return x.B<y.B;
-    });
-    vector<ZLabel> kept;
-    double bestB = INF;
-    for (auto& L : cand) {
-        if (L.B + 1e-12 < bestB) {
-            kept.push_back(L);
-            bestB = L.B;
-        }
-    }
-    cand.swap(kept);
 }
 
 pair<long long,long long> WernerAlgo_routing::bucket_key(const ZLabel& label) const {
@@ -500,7 +434,6 @@ void WernerAlgo_routing::bucket_by_ZP(vector<ZLabel>& cand) {
     vector<ZLabel> bucketed;
     for(const auto& L:buckets)
         bucketed.push_back(L.second);
-    //pareto_prune_byZ(bucketed);
     // 排序鍵 = J 的 log 主體 Z²−P（eval_best_J 的 J=(α+B)·exp(Z²−P)，同 cell
     // 同 t 的 α、B 差異有限）。舊版按 Z 遞增排，Z 最小 = purify 最兇的 label
     // 永遠佔住 merge 的 per-k 前綴，導致「不 purify 也達標」的組合在中間層就
@@ -509,6 +442,65 @@ void WernerAlgo_routing::bucket_by_ZP(vector<ZLabel>& cand) {
         return x.Z * x.Z - x.P < y.Z * y.Z - y.P;
     });
     cand.swap(bucketed);
+}
+
+double WernerAlgo_routing::exact_candidate_gain(
+        const Shape_vector& shape_vector,
+        const vector<int>& purify_rounds) {
+    if(shape_vector.size() < 2) return 0.0;
+
+    try {
+        Shape shape(shape_vector, purify_rounds);
+        const double fidelity = shape.get_fidelity(
+            A, B, n, T, tao, graph.get_F_init(), true);
+        if(fidelity + EPS < graph.get_fidelity_threshold()) return 0.0;
+
+        bool has_purification = false;
+        for(int rounds : purify_rounds)
+            if(rounds > 0) has_purification = true;
+
+        const double probability = has_purification
+            ? graph.path_Pr_purify(shape)
+            : graph.path_Pr(shape);
+        const double werner = Purification::fidelity_to_werner(fidelity);
+        return max((double)0.0, werner * probability);
+    } catch(const runtime_error&) {
+        return 0.0;
+    }
+}
+
+vector<int> WernerAlgo_routing::tighten_purification(
+        const Shape_vector& shape_vector,
+        const vector<int>& purify_rounds) {
+    const int link_count = max(0, (int)shape_vector.size() - 1);
+    vector<int> current(link_count, 0);
+    for(int i = 0; i < link_count && i < (int)purify_rounds.size(); ++i)
+        current[i] = max(0, purify_rounds[i]);
+
+    double current_gain = exact_candidate_gain(shape_vector, current);
+    if(current_gain <= 0.0) return current;
+
+    // Conservative coordinate descent: preserve the LP schedule and remove a
+    // round only after exact fidelity/probability evaluation proves that the
+    // individual request's expected Werner gain strictly improves.
+    while(true) {
+        int best_link = -1;
+        double best_gain = current_gain;
+        for(int i = 0; i < link_count; ++i) {
+            if(current[i] <= 0) continue;
+            vector<int> trial = current;
+            trial[i]--;
+            const double trial_gain = exact_candidate_gain(shape_vector, trial);
+            if(trial_gain > best_gain + 1e-12) {
+                best_gain = trial_gain;
+                best_link = i;
+            }
+        }
+        if(best_link < 0) break;
+        current[best_link]--;
+        current_gain = best_gain;
+    }
+    return current;
 }
 
 Shape_vector WernerAlgo_routing::backtrack_shape(ZLabel leaf, vector<int>& out_purify_rounds){
@@ -691,17 +683,55 @@ void WernerAlgo_routing::run() {
             }
         }
         cerr << "[" << algorithm_name << "] LP done, " << it << " oracle calls" << endl;
-        vector<pair<double, Shape_vector>> shapes;
+        struct RoundingCandidate {
+            double flow = 0.0;
+            double gain = 0.0;
+            double score = 0.0;
+            Shape_vector shape;
+            vector<int> purify_rounds;
+            int rounds_before = 0;
+            int rounds_after = 0;
+        };
+        vector<RoundingCandidate> shapes;
+        int tightened_candidates = 0;
+        int removed_purify_rounds = 0;
 
         for(int i = 0; i < (int)requests.size(); i++) {
             for(auto P : x[i]) {
-                shapes.push_back({P.second, P.first});
+                vector<int> original_rounds;
+                if(shape_purify_map.count(P.first))
+                    original_rounds = shape_purify_map[P.first];
+                vector<int> tightened_rounds =
+                    tighten_purification(P.first, original_rounds);
+
+                int before = 0, after = 0;
+                for(int rounds : original_rounds) before += max(0, rounds);
+                for(int rounds : tightened_rounds) after += max(0, rounds);
+                if(after < before) {
+                    tightened_candidates++;
+                    removed_purify_rounds += before - after;
+                }
+
+                const double gain = exact_candidate_gain(P.first, tightened_rounds);
+                shapes.push_back({P.second, gain, P.second * gain,
+                                  P.first, std::move(tightened_rounds),
+                                  before, after});
             }
         }
 
-        sort(shapes.begin(), shapes.end(), [](pair<double, Shape_vector> left, pair<double, Shape_vector> right) {
-            return left.first > right.first;
+        sort(shapes.begin(), shapes.end(), [](const RoundingCandidate& left,
+                                              const RoundingCandidate& right) {
+            if(fabs(left.score - right.score) > EPS)
+                return left.score > right.score;
+            if(left.rounds_after != right.rounds_after)
+                return left.rounds_after < right.rounds_after;
+            return left.flow > right.flow;
         });
+
+        cerr << "[" << algorithm_name << " tightening] candidates="
+             << shapes.size()
+             << " | changed=" << tightened_candidates
+             << " | removed_rounds=" << removed_purify_rounds << endl;
 
         vector<bool> used(requests.size(), false);
         vector<int> finished;
@@ -739,12 +769,10 @@ void WernerAlgo_routing::run() {
         };
         vector<AcceptedPathEntry> accepted_path_entries;
 
-        for(pair<double, Shape_vector> P : shapes) {
+        for(const RoundingCandidate& candidate : shapes) {
             // 用 purify_rounds 構造 Shape（若有的話）
-            vector<int> pr;
-            if(shape_purify_map.count(P.second))
-                pr = shape_purify_map[P.second];
-            Shape shape = pr.empty() ? Shape(P.second) : Shape(P.second, pr);
+            const vector<int>& pr = candidate.purify_rounds;
+            Shape shape(candidate.shape, pr);
             bool has_purify = false;
             for (int r : pr) if (r > 0) has_purify = true;
             int request_index = -1;
@@ -882,7 +910,7 @@ void WernerAlgo_routing::run() {
                 // [新增] 收集 purification 前後的 fidelity 與 prob 統計（僅記錄有 purify 的）
                 if(has_purify) {
                     // 計算不開放 purify 的 fidelity 和 prob
-                    Shape shape_no_pur(P.second);  // 不帶 purify rounds 的 shape
+                    Shape shape_no_pur(candidate.shape);  // 不帶 purify rounds 的 shape
                     double fid_no_pur = shape_no_pur.get_fidelity(A, B, n, T, tao, graph.get_F_init(), false);
                     double prob_no_pur = graph.path_Pr(shape_no_pur);
 

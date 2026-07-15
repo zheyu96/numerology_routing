@@ -83,7 +83,7 @@ class ChartGenerator:
         Y_interval_settings = {
             'fidelity_gain':{
                 'request_cnt': (5, 50, 15),
-                'tao': (25, 55, 5),
+                'tao': (5, 30, 5),
                 'time_limit': (15, 40, 5),
                 'avg_memory': (20, 40, 5),
                 'fidelity_threshold': (0, 50, 10),
@@ -92,7 +92,7 @@ class ChartGenerator:
             },
             'succ_request_cnt':{
                 'request_cnt': (5, 60, 15),
-                'tao': (30, 70, 10),
+                'tao': (10, 40, 5),
                 'time_limit': (20, 50, 5),
                 'avg_memory': (25, 50, 5),
                 'fidelity_threshold': (0, 60, 10),
