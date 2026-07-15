@@ -55,7 +55,6 @@ void WernerAlgo2::variable_initialize() {
     alpha.assign(requests.size(), delta);
     x.clear();
     x.resize(requests.size());
-    shape_purify_map.clear();
     int V = graph.get_num_nodes();
     int T = graph.get_time_limit();
     dpp.eps_bucket = (bucket_eps > 0.0) ? bucket_eps : graph.get_bucket_eps();
@@ -122,45 +121,28 @@ Shape_vector WernerAlgo2::separation_oracle(){
             }
 
             double local_best_J = 1e18;
-            Shape_vector local_best_shape;
-            vector<int> local_best_rounds;
+            ZLabel local_best_label;
 
             for(int t=1;t<=dpp.T;t++){
                 run_dp_in_t(cur_paths[p],dpp,t);
-                const int last=(int)cur_paths[p].size()-1;
-                for(const auto& label:DP_table[t][0][last]){
-                    double J=(alpha[i]+label.B)*exp(label.Z*label.Z-label.P);
-                    if(J+EPS>=local_best_J) continue;
-
-                    vector<int> rounds;
-                    Shape_vector candidate_shape;
-                    try {
-                        candidate_shape=backtrack_shape(label,cur_paths[p],rounds);
-                        if(candidate_shape.empty()) continue;
-                        Shape exact_shape(candidate_shape,rounds);
-                        double exact_fidelity=exact_shape.get_fidelity(
-                            A,B,n,T,tao,graph.get_F_init(),true);
-                        if(exact_fidelity+EPS<graph.get_fidelity_threshold()) continue;
-                    } catch(const runtime_error&) {
-                        continue;
-                    }
-
-                    local_best_J=J;
-                    local_best_shape=std::move(candidate_shape);
-                    local_best_rounds=std::move(rounds);
+                auto cur_val=eval_best_J(0,cur_paths[p].size()-1,t,alpha[i]);
+                if(cur_val.first < local_best_J){
+                    local_best_J = cur_val.first;
+                    local_best_label = cur_val.second;
                 }
             }
 
             if(local_best_J < 1e18){
-                cache.shape = std::move(local_best_shape);
-                cache.purify_rounds = std::move(local_best_rounds);
+                vector<int> cur_rounds;
+                cache.shape = backtrack_shape(local_best_label, cur_paths[p], cur_rounds);
+                cache.purify_rounds = cur_rounds;
                 cache.best_score = local_best_J;
                 cache.valid = true;
 
                 if(local_best_J < most_violate){
                     most_violate = local_best_J;
                     todo_shape = cache.shape;
-                    best_purify_rounds = cache.purify_rounds;
+                    best_purify_rounds = cur_rounds;
                 }
             }
         }
