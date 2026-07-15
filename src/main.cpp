@@ -964,8 +964,10 @@ int main(){
     string file_path = "../data/";
 
     map<string, double> default_setting;
-    default_setting["num_nodes"] = 100;
-    default_setting["request_cnt"] = 80;
+    // Small, reproducible default for quick tau validation.  Larger runs can
+    // override these with WPFA_NUM_NODES / WPFA_REQUEST_COUNT.
+    default_setting["num_nodes"] = 30;
+    default_setting["request_cnt"] = 30;
     default_setting["entangle_lambda"] = 0.045;
     default_setting["time_limit"] = 13;
     // avg_memory 必須夠緊張，讓演算法無法服務所有可行 request → 不同策略做不同取捨
@@ -984,10 +986,23 @@ int main(){
     default_setting["entangle_time"] = 0.00025;
     default_setting["entangle_prob"] = 0.01;
     default_setting["Zmin"]=0.02702867239;
-    default_setting["bucket_eps"]=0.01;
+    // Paper TRIM_epsilon is tunable. 0.01 makes the all-pairs routing
+    // extension impractically large after removing the non-paper hard caps.
+    default_setting["bucket_eps"]=0.05;
     default_setting["time_eta"]=0.001;
     default_setting["hop_count"]=3;
     default_setting["delta_P"]=0.01;
+    auto apply_int_env = [&](const char* name, const char* key) {
+        if(const char* value = getenv(name)) {
+            try {
+                default_setting[key] = max(1, stoi(value));
+            } catch(const exception&) {
+                cerr << "[config] ignoring invalid " << name << "='" << value << "'" << endl;
+            }
+        }
+    };
+    apply_int_env("WPFA_NUM_NODES", "num_nodes");
+    apply_int_env("WPFA_REQUEST_COUNT", "request_cnt");
     map<string, vector<double>> change_parameter;
     change_parameter["request_cnt"] = {80,100,120,140,160};
     change_parameter["num_nodes"] = {30, 40, 50, 60, 70};
@@ -1005,7 +1020,19 @@ int main(){
     //change_parameter["Zmin"]={0.028,0.150,0.272,0.394,0.518};
     change_parameter["bucket_eps"]={0.00001,0.0001,0.001,0.01,0.1};
     change_parameter["time_eta"]={0.00001,0.0001,0.001,0.01,0.1};
-    int round = 5;
+    int round = 1;
+    if(const char* env_rounds = getenv("WPFA_ROUNDS")) {
+        try {
+            round = max(1, stoi(env_rounds));
+        } catch(const exception&) {
+            cerr << "[config] invalid WPFA_ROUNDS='" << env_rounds
+                 << "'; using 1" << endl;
+            round = 1;
+        }
+    }
+    // Run the complete algorithm set by default, even with the small quick
+    // parameters.  WPFA_COMPARE_ONLY=1 is an optional diagnostic shortcut.
+    const bool compare_only = getenv("WPFA_COMPARE_ONLY") != nullptr;
     vector<vector<SDpair>> default_requests(round);
     #pragma omp parallel for
     for(int r = 0; r < round; r++) {
@@ -1183,7 +1210,7 @@ int main(){
              << (routing_favored_workload ? "routing-favored-capability-ladder"
                                           : "tau-stratified-fixed-workload") << "\n"
              << (routing_favored_workload
-                 ? "  mix: 20% sp-ok, 40% need-purify, 10% need-detour, 30% need-both\n"
+                 ? "  target mix: 20% sp-ok, 40% need-purify, 10% need-detour, 30% need-both; see selected mix above after fallback\n"
                  : "  mix (no purification): 50% robust, 30% mid-only, 20% low-only\n")
              << "  hop distribution:";
         for(const auto& [hop, count] : hop_dist)
@@ -1359,11 +1386,14 @@ int main(){
                     cerr << "Max path length = " << mx_path_len << "\n";
                     vector<AlgorithmBase*> algorithms;
                     //algorithms.emplace_back(new WernerAlgo_UB(graph,requests,paths));
-                    DBG_HERE("before new WernerAlgo3");
-                    algorithms.emplace_back(new WernerAlgo3(graph,requests,paths));  // ZFA_UB (LP upper bound with purify)
-                    DBG_HERE("after new WernerAlgo3");
-                    DBG_mem("after_new_WernerAlgo3");
-                    {
+                    #ifndef WPFA_QUICK_BUILD
+                    if(!compare_only) {
+                        DBG_HERE("before new WernerAlgo3");
+                        algorithms.emplace_back(new WernerAlgo3(graph,requests,paths));  // ZFA_UB (LP upper bound with purify)
+                        DBG_HERE("after new WernerAlgo3");
+                        DBG_mem("after_new_WernerAlgo3");
+                    }
+                    if(!compare_only) {
                         DBG_HERE("before new WernerAlgo2");
                         auto* zfa2 = new WernerAlgo2(graph,requests,paths);
                         DBG_HERE("after new WernerAlgo2");
@@ -1372,6 +1402,7 @@ int main(){
                         zfa2->set_experiment_label(exp_label);
                         algorithms.emplace_back(zfa2);
                     }
+                    #endif
                     {
                         DBG_HERE("before new WernerAlgo_routing");
                         auto* zfa_routing = new WernerAlgo_routing(graph,requests,paths);
@@ -1382,12 +1413,16 @@ int main(){
                         algorithms.emplace_back(zfa_routing);
                     }
                     if(X_name!="Zmin"&&X_name!="bucket_eps"&&X_name!="time_eta"){
-                        DBG_HERE("before new MyAlgo1");
-                        algorithms.emplace_back(new MyAlgo1(graph, requests, paths));
-                        DBG_HERE("after new MyAlgo1");
-                        DBG_HERE("before new MyAlgo3");
-                        algorithms.emplace_back(new MyAlgo3(graph, requests, paths));
-                        DBG_HERE("after new MyAlgo3");
+                        #ifndef WPFA_QUICK_BUILD
+                        if(!compare_only) {
+                            DBG_HERE("before new MyAlgo1");
+                            algorithms.emplace_back(new MyAlgo1(graph, requests, paths));
+                            DBG_HERE("after new MyAlgo1");
+                            DBG_HERE("before new MyAlgo3");
+                            algorithms.emplace_back(new MyAlgo3(graph, requests, paths));
+                            DBG_HERE("after new MyAlgo3");
+                        }
+                        #endif
                         // SP baselines：最短路徑 + 固定 swap 排程（skewed / balanced）
                         algorithms.emplace_back(new GreedySP(graph, requests, paths, GreedySP::SwapMode::SKEWED));
                         algorithms.emplace_back(new GreedySP(graph, requests, paths, GreedySP::SwapMode::BALANCED));

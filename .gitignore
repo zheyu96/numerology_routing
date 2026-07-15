@@ -1,6 +1,7 @@
 *.o
 *.gch
 *.out
+*.exe
 *.vscode
 *.txt
 *.log

@@ -5,6 +5,7 @@
 #include <sstream>
 #include <cmath>
 #include <climits>
+#include <numeric>
 
 using namespace std;
 
@@ -55,6 +56,7 @@ void WernerAlgo_routing::variable_initialize() {
     alpha.assign(requests.size(), delta);
     x.clear();
     x.resize(requests.size());
+    shape_purify_map.clear();
     int V = graph.get_num_nodes();
     int T = graph.get_time_limit();
     dpp.eps_bucket = (bucket_eps > 0.0) ? bucket_eps : graph.get_bucket_eps();
@@ -121,18 +123,36 @@ Shape_vector WernerAlgo_routing::separation_oracle(){
         int src=requests[i].first,dst=requests[i].second;
 
         double local_best_J = 1e18;
-        ZLabel local_best_label;
+        vector<int> local_best_rounds;
+        Shape_vector local_best_shape;
         for(int t=1;t<=dpp.T;t++){
-            auto cur_val=eval_best_J(src,dst,t,alpha[i]);
-            if(cur_val.first < local_best_J){
-                local_best_J = cur_val.first;
-                local_best_label = cur_val.second;
+            for(const auto& label : DP_table[t][src][dst]){
+                double J=(alpha[i]+label.B)*exp(label.Z*label.Z-label.P);
+                if(J+EPS>=local_best_J) continue;
+
+                vector<int> rounds;
+                Shape_vector sh;
+                try {
+                    sh=backtrack_shape(label,rounds);
+                    if(sh.empty()||has_duplicate_nodes(sh)) continue;
+                    Shape exact_shape(sh,rounds);
+                    double exact_fidelity=exact_shape.get_fidelity(
+                        A,B,n,T,tao,graph.get_F_init(),true);
+                    if(exact_fidelity+EPS<graph.get_fidelity_threshold()) continue;
+                } catch(const runtime_error&) {
+                    continue;
+                }
+
+                local_best_J=J;
+                local_best_rounds=std::move(rounds);
+                local_best_shape=std::move(sh);
             }
         }
 
         if(local_best_J < 1e18 && local_best_J < most_violate){
             vector<int> cur_rounds;
-            Shape_vector sh = backtrack_shape(local_best_label, cur_rounds);
+            Shape_vector sh = std::move(local_best_shape);
+            cur_rounds = std::move(local_best_rounds);
             // all-pairs DP 可能 merge 出重複經過同一節點的 walk，這種 shape
             // 過不了 check_valid / check_resource，直接擋在 oracle 這層
             if(!sh.empty() && !has_duplicate_nodes(sh)){
@@ -302,6 +322,31 @@ void WernerAlgo_routing::run_dp_in_t_legacy(const DPParam& dpp,int t) {
 
 void WernerAlgo_routing::run_dp_in_t(const DPParam& dpp, int t) {
     const int node_count = (int)graph.get_num_nodes();
+    const size_t ROUTING_LABEL_BUDGET = 48;
+    const int MERGE_SIDE_BUDGET = 6;
+
+    auto diverse_indices = [&](const vector<ZLabel>& source) {
+        vector<int> ids;
+        auto add = [&](int id) {
+            if (id >= 0 && find(ids.begin(), ids.end(), id) == ids.end())
+                ids.push_back(id);
+        };
+        const int quota = max(1, MERGE_SIDE_BUDGET / 3);
+
+        // DP cells are already ordered by the J proxy.
+        for (int i = 0; i < min(quota, (int)source.size()); ++i) add(i);
+
+        vector<int> order(source.size());
+        iota(order.begin(), order.end(), 0);
+        partial_sort(order.begin(), order.begin() + min(quota, (int)order.size()), order.end(),
+            [&](int lhs, int rhs) { return source[lhs].Z < source[rhs].Z; });
+        for (int i = 0; i < min(quota, (int)order.size()); ++i) add(order[i]);
+
+        partial_sort(order.begin(), order.begin() + min(quota, (int)order.size()), order.end(),
+            [&](int lhs, int rhs) { return source[lhs].B < source[rhs].B; });
+        for (int i = 0; i < min(quota, (int)order.size()); ++i) add(order[i]);
+        return ids;
+    };
 
     for (int a = 0; a < node_count; ++a) {
         for (int b = a + 1; b < node_count; ++b) {
@@ -345,9 +390,11 @@ void WernerAlgo_routing::run_dp_in_t(const DPParam& dpp, int t) {
                 const auto& right = DP_table[t - 1][k][b];
                 if (left.empty() || right.empty()) continue;
                 const double swap_log_probability = log(graph.get_node_swap_prob(k));
+                const vector<int> left_ids = diverse_indices(left);
+                const vector<int> right_ids = diverse_indices(right);
 
-                for (int left_id = 0; left_id < (int)left.size(); ++left_id) {
-                    for (int right_id = 0; right_id < (int)right.size(); ++right_id) {
+                for (int left_id : left_ids) {
+                    for (int right_id : right_ids) {
                         const double left_W = left[left_id].Z + dpp.eta;
                         const double right_W = right[right_id].Z + dpp.eta;
                         const double Z = sqrt(left_W * left_W + right_W * right_W);
@@ -360,8 +407,37 @@ void WernerAlgo_routing::run_dp_in_t(const DPParam& dpp, int t) {
                 }
             }
 
+            vector<ZLabel> representatives;
+            representatives.reserve(non_base_buckets.size());
             for (const auto& entry : non_base_buckets)
-                labels.push_back(entry.second);
+                representatives.push_back(entry.second);
+
+            if (representatives.size() > ROUTING_LABEL_BUDGET) {
+                map<pair<long long,long long>, ZLabel> selected;
+                auto retain = [&](const ZLabel& label) {
+                    if (selected.size() >= ROUTING_LABEL_BUDGET) return;
+                    selected.emplace(bucket_key(label), label);
+                };
+                const size_t quota = ROUTING_LABEL_BUDGET / 3;
+                sort(representatives.begin(), representatives.end(), [](const ZLabel& x, const ZLabel& y) {
+                    return x.Z * x.Z - x.P < y.Z * y.Z - y.P;
+                });
+                for (size_t i = 0; i < min(quota, representatives.size()); ++i) retain(representatives[i]);
+                sort(representatives.begin(), representatives.end(), [](const ZLabel& x, const ZLabel& y) {
+                    return x.Z < y.Z;
+                });
+                for (size_t i = 0; i < representatives.size() && selected.size() < 2 * quota; ++i)
+                    retain(representatives[i]);
+                sort(representatives.begin(), representatives.end(), [](const ZLabel& x, const ZLabel& y) {
+                    return x.B < y.B;
+                });
+                for (const auto& label : representatives) retain(label);
+
+                representatives.clear();
+                for (const auto& entry : selected) representatives.push_back(entry.second);
+            }
+
+            labels.insert(labels.end(), representatives.begin(), representatives.end());
             sort(labels.begin(), labels.end(), [](const ZLabel& x, const ZLabel& y) {
                 return x.Z * x.Z - x.P < y.Z * y.Z - y.P;
             });
