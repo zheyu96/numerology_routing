@@ -58,7 +58,7 @@ private:
     };
 
     struct DPParam{
-        double eps_bucket,Zhat,Zmin,eta,T,deltaP;
+        double eps_bucket,Zhat,Zmin,Pmin,eta,T;
         int tau_max;
     }dpp;
     // ===== 參數 / 對偶變數（風格比照 MyAlgo1） =====
@@ -81,6 +81,8 @@ private:
     // ===== 基本操作（Pareto / 分桶 / 存儲 / 回溯 / 評分） =====
     void pareto_prune_byZ(vector<ZLabel>& cand);
     void bucket_by_ZP(vector<ZLabel>& cand);
+    pair<long long,long long> bucket_key(const ZLabel& label) const;
+    void initialize_bucket_minima();
 
     Shape_vector backtrack_shape(ZLabel leaf, vector<int>& out_purify_rounds);
     int split_dis(int s,int d,const WernerAlgo_routing::ZLabel& L);

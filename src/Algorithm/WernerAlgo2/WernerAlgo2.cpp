@@ -13,6 +13,37 @@ WernerAlgo2::WernerAlgo2(const Graph& graph,const vector<pair<int,int>>& request
     this->bucket_eps = bucket_eps;
 }
 
+void WernerAlgo2::initialize_bucket_minima() {
+    dpp.Zmin = INF;
+    dpp.Pmin = INF;
+    const int max_rounds = min(purify_time, graph.get_time_limit() - 3);
+
+    for (int u = 0; u < graph.get_num_nodes(); ++u) {
+        for (int v : graph.adj_list[u]) {
+            if (u >= v) continue;
+            const double w_ini = graph.get_link_werner(u, v);
+            const double entangle_prob = graph.get_entangle_succ_prob(u, v);
+            for (int rounds = 0; rounds <= max_rounds; ++rounds) {
+                const double w = Purification::pumping_werner(w_ini, rounds);
+                const double probability = Purification::pumping_success_prob(
+                    entangle_prob, w_ini, rounds);
+                if (w <= 0.0 || w > 1.0 || probability <= 0.0 || probability > 1.0)
+                    continue;
+
+                const double W = sqrt(max((double)0.0, -log(w)));
+                const double P = -log(probability);
+                if (W > 0.0 && W <= dpp.Zhat + EPS) dpp.Zmin = min(dpp.Zmin, W);
+                if (P > 0.0) dpp.Pmin = min(dpp.Pmin, P);
+            }
+        }
+    }
+
+    // Degenerate perfect-link fallback. Normal experiment inputs have positive
+    // Wmin and Pmin, as assumed by Eqs. (18)-(19) in the paper.
+    if (dpp.Zmin >= INF / 2) dpp.Zmin = max((double)graph.get_Zmin(), (double)1e-12);
+    if (dpp.Pmin >= INF / 2) dpp.Pmin = (double)1e-12;
+}
+
 void WernerAlgo2::variable_initialize() {
     // 與 MyAlgo1 類似：初始化 dual 與目標
     int m = (int)requests.size()
@@ -30,11 +61,10 @@ void WernerAlgo2::variable_initialize() {
     double F_th=graph.get_fidelity_threshold();
     double w_th=(4.0*F_th-1.0)/3.0;
     dpp.Zhat = sqrt(-log(w_th))+1e-9;
-    dpp.Zmin = graph.get_Zmin();
     dpp.T    = time_limit-1;
     dpp.tau_max=min(time_limit-1,5);
     dpp.eta  = graph.get_tao()/graph.get_T();   // 論文 Eq.(2): eta = delta / T_mem
-    dpp.deltaP = (dpp.eps_bucket > 0.0) ? log1p(dpp.eps_bucket) : graph.get_delta_P();
+    initialize_bucket_minima();
     beta.assign(V, vector<double>(T, INF));
 
     for (int v = 0; v < V; ++v) {
@@ -152,33 +182,20 @@ WernerAlgo2::ZLabel WernerAlgo2::gen_leaf_label(int s,int e,int st,int tlen,int 
     return ZLabel(Bleaf,Zleaf,Pleaf,Op::LEAF,tlen-1,path_a,path_b,st,-1);
 } 
 void WernerAlgo2::run_dp_in_t(const Path& path, const DPParam& dpp,int t) {
-    const int T = graph.get_time_limit();
     const int n = (int)path.size();
-    const size_t MAX_CANDIDATES_PER_CELL = 1000;
-    const size_t MAX_LABELS_PER_CELL = 100;
-    auto trim_cell = [&](vector<ZLabel>& labels) {
-        if(labels.size() <= MAX_LABELS_PER_CELL) return;
-        nth_element(labels.begin(), labels.begin() + MAX_LABELS_PER_CELL, labels.end(),
-            [](const ZLabel& x, const ZLabel& y) {
-                if(x.B != y.B) return x.B < y.B;
-                return x.Z < y.Z;
-            });
-        labels.resize(MAX_LABELS_PER_CELL);
-        bucket_by_ZP(labels);
-        if(labels.size() > MAX_LABELS_PER_CELL) {
-            sort(labels.begin(), labels.end(), [](const ZLabel& x, const ZLabel& y) {
-                if(x.B != y.B) return x.B < y.B;
-                return x.Z < y.Z;
-            });
-            labels.resize(MAX_LABELS_PER_CELL);
-        }
-    };
 
     // -------- t = 1..T-1 外圈時間迴圈 --------
     for(int a=0;a<n-1;a++)
         for(int b=a+1;b<n;b++){
             int s=path[a],e=path[b];
             vector<ZLabel> cand;
+            map<pair<long long,long long>, ZLabel> non_leaf_buckets;
+            auto retain_non_leaf = [&](const ZLabel& label) {
+                const auto key = bucket_key(label);
+                auto it = non_leaf_buckets.find(key);
+                if (it == non_leaf_buckets.end() || label.B < it->second.B)
+                    non_leaf_buckets[key] = label;
+            };
             //leaf
             if(a+1==b){
                 for(int i=0;i<=purify_time;i++){
@@ -192,13 +209,13 @@ void WernerAlgo2::run_dp_in_t(const Path& path, const DPParam& dpp,int t) {
             }
             //continue
             const auto& pre=DP_table[t-1][a][b];
-            for(int p_id=0;p_id<pre.size() && cand.size() < MAX_CANDIDATES_PER_CELL;p_id++){
+            for(int p_id=0;p_id<(int)pre.size();p_id++){
                 double Zp=pre[p_id].Z+dpp.eta;
                 if(Zp<=dpp.Zhat){
                     double Bp=pre[p_id].B+beta[s][t]+beta[e][t];
                     double Pp=pre[p_id].P;
                     ZLabel L(Bp,Zp,Pp,Op::CONT,-1,a,b,t,-1,p_id);
-                    cand.push_back(L);
+                    retain_non_leaf(L);
                 }
             }
             //merge
@@ -206,8 +223,8 @@ void WernerAlgo2::run_dp_in_t(const Path& path, const DPParam& dpp,int t) {
                 const auto& L1=DP_table[t-1][a][k];
                 const auto& L2=DP_table[t-1][k][b];
                 if(L1.size()==0||L2.size()==0) continue;
-                for(int lid=0;lid<L1.size() && cand.size() < MAX_CANDIDATES_PER_CELL;lid++)
-                    for(int rid=0;rid<L2.size() && cand.size() < MAX_CANDIDATES_PER_CELL;rid++){
+                for(int lid=0;lid<(int)L1.size();lid++)
+                    for(int rid=0;rid<(int)L2.size();rid++){
                         const auto& left_seg=L1[lid];
                         const auto& right_seg=L2[rid];
                         double Zp=sqrt((left_seg.Z+dpp.eta)*(left_seg.Z+dpp.eta)+
@@ -217,7 +234,7 @@ void WernerAlgo2::run_dp_in_t(const Path& path, const DPParam& dpp,int t) {
                         if(Zp<=dpp.Zhat){
                             double Bp=left_seg.B+right_seg.B+beta[s][t]+beta[e][t];
                             ZLabel L(Bp,Zp,Pp,Op::MERGE,-1,a,b,t,k,-1,lid,rid);
-                            cand.push_back(L);
+                            retain_non_leaf(L);
                             // debug: 只印第一次 merge 的 Z 細節
                             static bool merge_printed = false;
                             if(!merge_printed) {
@@ -231,19 +248,13 @@ void WernerAlgo2::run_dp_in_t(const Path& path, const DPParam& dpp,int t) {
                         }
                     }
             }
-            vector<ZLabel> non_leaf;
-            for (auto& L : cand) {
-                if (L.op != Op::LEAF)
-                    non_leaf.push_back(L);
-            }
-            bucket_by_ZP(non_leaf);// trimming non-leaf
-            trim_cell(non_leaf);
-            cand.erase(
-                remove_if(cand.begin(), cand.end(),
-                        [](const ZLabel& L){ return L.op != Op::LEAF; }),
-                cand.end());
-            cand.insert(cand.end(), non_leaf.begin(), non_leaf.end());
-            trim_cell(cand);
+            // Paper TRIM_epsilon: base labels remain exact; all non-base labels
+            // are represented by the minimum-B label in each (W,P) bucket.
+            for (const auto& entry : non_leaf_buckets)
+                cand.push_back(entry.second);
+            sort(cand.begin(), cand.end(), [](const ZLabel& x, const ZLabel& y){
+                return x.Z < y.Z;
+            });
             DP_table[t][a][b] = cand;
         }
 }
@@ -265,29 +276,34 @@ void WernerAlgo2::pareto_prune_byZ(vector<ZLabel>& cand) {
     cand.swap(kept);
 }
 
+pair<long long,long long> WernerAlgo2::bucket_key(const ZLabel& label) const {
+    double q = 1 + dpp.eps_bucket;
+    if (q <= 1.0) q = 1.0 + 1e-12;
+    const double inv_log_q = 1.0 / log(q);
+
+    long long kW = 0;
+    if (label.Z > dpp.Zmin)
+        kW = max(0LL, (long long)floor(log(label.Z / dpp.Zmin) * inv_log_q + 1e-12));
+
+    const double probability_cost = max((double)0.0, -label.P);
+    long long kP = 0;
+    if (probability_cost > dpp.Pmin)
+        kP = max(0LL, (long long)floor(
+            log(probability_cost / dpp.Pmin) * inv_log_q + 1e-12));
+
+    return {kW, kP};
+}
+
 void WernerAlgo2::bucket_by_ZP(vector<ZLabel>& cand) {
     if (cand.empty()) return;
-    double q=1+dpp.eps_bucket;
-    if(q <= 1.0) q = 1.0 + 1e-12;
-    double invLogQ=1.0/log(q);
-    double deltaP=dpp.deltaP;
-    if(deltaP <= 0.0) deltaP = log(q);
     map<pair<long long,long long>,ZLabel> buckets;
-    for(auto L:cand){
-        long long kW;
-        if(L.Z<=dpp.Zmin) kW=0.0;
-        else{
-            kW=(long long)floor(log(L.Z/dpp.Zmin)*invLogQ+1e-12);
-            if(kW<0) kW=0.0;
-        }
-        long long kP=(long long)floor((-L.P)/deltaP+1e-12);
-        if(kP<0) kP=0;
-        auto key=make_pair(kW,kP);
+    for(const auto& L:cand){
+        auto key = bucket_key(L);
         if(buckets.count(key)==0||L.B<buckets[key].B)
             buckets[key]=L;
     }
     vector<ZLabel> bucketed;
-    for(auto L:buckets)
+    for(const auto& L:buckets)
         bucketed.push_back(L.second);
     //pareto_prune_byZ(bucketed);
     sort(bucketed.begin(), bucketed.end(), [](const ZLabel& x, const ZLabel& y){

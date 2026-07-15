@@ -15,6 +15,35 @@ WernerAlgo_routing::WernerAlgo_routing(const Graph& graph,const vector<pair<int,
     this->bucket_eps = bucket_eps;
 }
 
+void WernerAlgo_routing::initialize_bucket_minima() {
+    dpp.Zmin = INF;
+    dpp.Pmin = INF;
+    const int max_rounds = min(purify_time, graph.get_time_limit() - 3);
+
+    for (int u = 0; u < graph.get_num_nodes(); ++u) {
+        for (int v : graph.adj_list[u]) {
+            if (u >= v) continue;
+            const double w_ini = graph.get_link_werner(u, v);
+            const double entangle_prob = graph.get_entangle_succ_prob(u, v);
+            for (int rounds = 0; rounds <= max_rounds; ++rounds) {
+                const double w = Purification::pumping_werner(w_ini, rounds);
+                const double probability = Purification::pumping_success_prob(
+                    entangle_prob, w_ini, rounds);
+                if (w <= 0.0 || w > 1.0 || probability <= 0.0 || probability > 1.0)
+                    continue;
+
+                const double W = sqrt(max((double)0.0, -log(w)));
+                const double P = -log(probability);
+                if (W > 0.0 && W <= dpp.Zhat + EPS) dpp.Zmin = min(dpp.Zmin, W);
+                if (P > 0.0) dpp.Pmin = min(dpp.Pmin, P);
+            }
+        }
+    }
+
+    if (dpp.Zmin >= INF / 2) dpp.Zmin = max((double)graph.get_Zmin(), (double)1e-12);
+    if (dpp.Pmin >= INF / 2) dpp.Pmin = (double)1e-12;
+}
+
 void WernerAlgo_routing::variable_initialize() {
     // 與 MyAlgo1 類似：初始化 dual 與目標
     int m = (int)requests.size()
@@ -32,11 +61,10 @@ void WernerAlgo_routing::variable_initialize() {
     double F_th=graph.get_fidelity_threshold();
     double w_th=(4.0*F_th-1.0)/3.0;
     dpp.Zhat = sqrt(-log(w_th))+1e-9;
-    dpp.Zmin = graph.get_Zmin();
     dpp.T    = time_limit-1;
     dpp.tau_max=min(time_limit-1,5);
     dpp.eta  = graph.get_tao()/graph.get_T();   // 論文 Eq.(2): eta = delta / T_mem
-    dpp.deltaP = (dpp.eps_bucket > 0.0) ? log1p(dpp.eps_bucket) : graph.get_delta_P();
+    initialize_bucket_minima();
     beta.assign(V, vector<double>(T, INF));
 
     for (int v = 0; v < V; ++v) {
@@ -151,27 +179,10 @@ WernerAlgo_routing::ZLabel WernerAlgo_routing::gen_leaf_label(int s,int e,int st
     if(Zleaf>dpp.Zhat) return ZLabel();
     return ZLabel(Bleaf,Zleaf,Pleaf,Op::LEAF,tlen-1,path_a,path_b,st,-1);
 } 
-void WernerAlgo_routing::run_dp_in_t(const DPParam& dpp,int t) {
+#if 0
+// Legacy capped implementation retained temporarily for comparison.
+void WernerAlgo_routing::run_dp_in_t_legacy(const DPParam& dpp,int t) {
     const int n = (int)graph.get_num_nodes();
-    const size_t MAX_CANDIDATES_PER_CELL = 1000;
-    const size_t MAX_LABELS_PER_CELL = 100;
-    auto trim_cell = [&](vector<ZLabel>& labels) {
-        if(labels.size() <= MAX_LABELS_PER_CELL) return;
-        nth_element(labels.begin(), labels.begin() + MAX_LABELS_PER_CELL, labels.end(),
-            [](const ZLabel& x, const ZLabel& y) {
-                if(x.B != y.B) return x.B < y.B;
-                return x.Z < y.Z;
-            });
-        labels.resize(MAX_LABELS_PER_CELL);
-        bucket_by_ZP(labels);
-        if(labels.size() > MAX_LABELS_PER_CELL) {
-            sort(labels.begin(), labels.end(), [](const ZLabel& x, const ZLabel& y) {
-                if(x.B != y.B) return x.B < y.B;
-                return x.Z < y.Z;
-            });
-            labels.resize(MAX_LABELS_PER_CELL);
-        }
-    };
 
     // (t-1) 層每個 cell 的最小 Z label 位置：merge 的「可行性保底名額」。
     // 前綴改按 J 代理值 (Z²−P) 排序後，高 tau 時前綴內可能全是接近 Zhat 的
@@ -287,6 +298,86 @@ void WernerAlgo_routing::run_dp_in_t(const DPParam& dpp,int t) {
         }
 }
 
+#endif
+
+void WernerAlgo_routing::run_dp_in_t(const DPParam& dpp, int t) {
+    const int node_count = (int)graph.get_num_nodes();
+
+    for (int a = 0; a < node_count; ++a) {
+        for (int b = a + 1; b < node_count; ++b) {
+            vector<ZLabel> labels;
+            map<pair<long long,long long>, ZLabel> non_base_buckets;
+
+            auto retain_non_base = [&](const ZLabel& label) {
+                const auto key = bucket_key(label);
+                auto it = non_base_buckets.find(key);
+                if (it == non_base_buckets.end() || label.B < it->second.B)
+                    non_base_buckets[key] = label;
+            };
+
+            // E(t,[a,b]): paper base labels are kept without trimming.
+            if (graph.adj_set[a].count(b)) {
+                for (int rounds = 0; rounds <= purify_time; ++rounds) {
+                    if (t - rounds - 1 <= 0) continue;
+                    ZLabel leaf = gen_leaf_label(a, b, t, rounds + 1, a, b);
+                    if (leaf.Z > dpp.Zhat) continue;
+                    leaf.ent_l = t - rounds - 1;
+                    leaf.ent_r = t;
+                    labels.push_back(leaf);
+                }
+            }
+
+            const auto& previous = DP_table[t - 1][a][b];
+            for (int parent_id = 0; parent_id < (int)previous.size(); ++parent_id) {
+                const double Z = previous[parent_id].Z + dpp.eta;
+                if (Z > dpp.Zhat) continue;
+                retain_non_base(ZLabel(
+                    previous[parent_id].B + beta[a][t] + beta[b][t],
+                    Z, previous[parent_id].P, Op::CONT, -1,
+                    a, b, t, -1, parent_id));
+            }
+
+            // Enumerate all merge pairs and retain min-B representatives online.
+            // This produces exactly the same buckets as trimming their full union.
+            for (int k = 0; k < node_count; ++k) {
+                if (k == a || k == b) continue;
+                const auto& left = DP_table[t - 1][a][k];
+                const auto& right = DP_table[t - 1][k][b];
+                if (left.empty() || right.empty()) continue;
+                const double swap_log_probability = log(graph.get_node_swap_prob(k));
+
+                for (int left_id = 0; left_id < (int)left.size(); ++left_id) {
+                    for (int right_id = 0; right_id < (int)right.size(); ++right_id) {
+                        const double left_W = left[left_id].Z + dpp.eta;
+                        const double right_W = right[right_id].Z + dpp.eta;
+                        const double Z = sqrt(left_W * left_W + right_W * right_W);
+                        if (Z > dpp.Zhat) continue;
+                        retain_non_base(ZLabel(
+                            left[left_id].B + right[right_id].B + beta[a][t] + beta[b][t],
+                            Z, left[left_id].P + right[right_id].P + swap_log_probability,
+                            Op::MERGE, -1, a, b, t, k, -1, left_id, right_id));
+                    }
+                }
+            }
+
+            for (const auto& entry : non_base_buckets)
+                labels.push_back(entry.second);
+            sort(labels.begin(), labels.end(), [](const ZLabel& x, const ZLabel& y) {
+                return x.Z * x.Z - x.P < y.Z * y.Z - y.P;
+            });
+
+            vector<ZLabel> mirrored(labels.size());
+            for (size_t i = 0; i < labels.size(); ++i) {
+                mirrored[i] = labels[i];
+                swap(mirrored[i].a, mirrored[i].b);
+                swap(mirrored[i].left_id, mirrored[i].right_id);
+            }
+            DP_table[t][a][b] = std::move(labels);
+            DP_table[t][b][a] = std::move(mirrored);
+        }
+    }
+}
+
 void WernerAlgo_routing::pareto_prune_byZ(vector<ZLabel>& cand) {
     if (cand.empty()) return;
     sort(cand.begin(), cand.end(), [](const ZLabel& x, const ZLabel& y){
@@ -304,24 +395,29 @@ void WernerAlgo_routing::pareto_prune_byZ(vector<ZLabel>& cand) {
     cand.swap(kept);
 }
 
+pair<long long,long long> WernerAlgo_routing::bucket_key(const ZLabel& label) const {
+    double q = 1 + dpp.eps_bucket;
+    if (q <= 1.0) q = 1.0 + 1e-12;
+    const double inv_log_q = 1.0 / log(q);
+
+    long long kW = 0;
+    if (label.Z > dpp.Zmin)
+        kW = max(0LL, (long long)floor(log(label.Z / dpp.Zmin) * inv_log_q + 1e-12));
+
+    const double probability_cost = max((double)0.0, -label.P);
+    long long kP = 0;
+    if (probability_cost > dpp.Pmin)
+        kP = max(0LL, (long long)floor(
+            log(probability_cost / dpp.Pmin) * inv_log_q + 1e-12));
+
+    return {kW, kP};
+}
+
 void WernerAlgo_routing::bucket_by_ZP(vector<ZLabel>& cand) {
     if (cand.empty()) return;
-    double q=1+dpp.eps_bucket;
-    if(q <= 1.0) q = 1.0 + 1e-12;
-    double invLogQ=1.0/log(q);
-    double deltaP=dpp.deltaP;
-    if(deltaP <= 0.0) deltaP = log(q);
     map<pair<long long,long long>,ZLabel> buckets;
     for(const auto& L:cand){
-        long long kW;
-        if(L.Z<=dpp.Zmin) kW=0.0;
-        else{
-            kW=(long long)floor(log(L.Z/dpp.Zmin)*invLogQ+1e-12);
-            if(kW<0) kW=0.0;
-        }
-        long long kP=(long long)floor((-L.P)/deltaP+1e-12);
-        if(kP<0) kP=0;
-        auto key=make_pair(kW,kP);
+        auto key = bucket_key(L);
         if(buckets.count(key)==0||L.B<buckets[key].B)
             buckets[key]=L;
     }
@@ -445,7 +541,7 @@ void WernerAlgo_routing::run() {
         //cerr << "\033[1;31m"<< "[WernerAlgo's parameter] : "<< dpp.Zmin<<" "<<dpp.eps_bucket<<" "<<dpp.eta<< "\033[0m"<< endl;
         int it=0;
         double eps=1e-4;
-        const int REUSE = 10;  // 每次 oracle 找到 shape 後重複灌 REUSE 次流量
+        const int REUSE = 20;  // 每次 oracle 找到 shape 後重複灌 REUSE 次流量
         while (obj+eps < 1.0) {
             it++;
             Shape_vector shape=separation_oracle();

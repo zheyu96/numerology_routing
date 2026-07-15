@@ -679,8 +679,9 @@ struct RoutingFavoredCandidate {
     WorkloadClass cls = WorkloadClass::SP_OK;
     // 各值皆為「該類所有候選路徑的最大 fidelity」，供分類與診斷用
     double sp0_low = 0, sp0_mid = 0, sp0_high = 0;   // 最短路徑、不 purify
-    double spP_low = 0, spP_mid = 0;                 // 最短路徑、purify 後
-    double alt0_mid = 0, altP_mid = 0;               // 替代路徑（不 purify / purify）
+    double spP_low = 0, spP_mid = 0, spP_high = 0;   // 最短路徑、purify 後
+    double alt0_mid = 0, alt0_high = 0;              // 替代路徑、不 purify
+    double altP_mid = 0, altP_high = 0;              // 替代路徑、purify 後
 };
 
 static vector<SDpair> generate_routing_favored_requests(
@@ -698,8 +699,8 @@ static vector<SDpair> generate_routing_favored_requests(
 
     const int MAX_SP_HOP = 4;         // 最短路徑 hop 上限（time_limit 內可完成）
     const int DETOUR_SLACK = 1;       // 替代路徑允許比最短路徑多的 hop 數
-    const int MAX_PURIFY_ROUNDS = 2;  // 分類時嘗試的 purify 輪數上限
-    const int TOPK = 5;               // 每類保留 fidelity 最高的幾條路徑做 purify 評估
+    const int MAX_PURIFY_ROUNDS = 5;  // 與 WPFA/SP 實際演算法一致
+    const int TOPK = 12;              // 保留 high-tau 最佳路徑做 purify 評估
     const int MAX_PATHS_PER_PAIR = 20000;
 
     auto bfs_dist = [&](int root) {
@@ -733,7 +734,7 @@ static vector<SDpair> generate_routing_favored_requests(
             RoutingFavoredCandidate cand;
             cand.sd = {src, dst};
             cand.sp_hop = sp;
-            vector<pair<double, Path>> top_sp, top_alt;  // (f_mid, path)
+            vector<pair<double, Path>> top_sp, top_alt;  // (f_high, path)
             int path_cnt = 0;
 
             auto keep_topk = [&](vector<pair<double, Path>>& top,
@@ -758,16 +759,17 @@ static vector<SDpair> generate_routing_favored_requests(
                     path_cnt++;
                     int h = (int)cur.size() - 1;
                     double f_mid = estimate_balanced_fidelity(graph, cur, tau_mid);
+                    double f_high = estimate_balanced_fidelity(graph, cur, tau_high);
                     if(h == sp) {
                         cand.sp0_mid = max(cand.sp0_mid, f_mid);
                         cand.sp0_low = max(cand.sp0_low,
                             estimate_balanced_fidelity(graph, cur, tau_low));
-                        cand.sp0_high = max(cand.sp0_high,
-                            estimate_balanced_fidelity(graph, cur, tau_high));
-                        keep_topk(top_sp, f_mid, cur);
+                        cand.sp0_high = max(cand.sp0_high, f_high);
+                        keep_topk(top_sp, f_high, cur);
                     } else {
                         cand.alt0_mid = max(cand.alt0_mid, f_mid);
-                        keep_topk(top_alt, f_mid, cur);
+                        cand.alt0_high = max(cand.alt0_high, f_high);
+                        keep_topk(top_alt, f_high, cur);
                     }
                     return;
                 }
@@ -792,24 +794,30 @@ static vector<SDpair> generate_routing_favored_requests(
                         estimate_balanced_fidelity(graph, p, tau_mid, rr));
                     cand.spP_low = max(cand.spP_low,
                         estimate_balanced_fidelity(graph, p, tau_low, rr));
+                    cand.spP_high = max(cand.spP_high,
+                        estimate_balanced_fidelity(graph, p, tau_high, rr));
                 }
             }
-            for(const auto& [f0, p] : top_alt)
-                for(int rr = 1; rr <= MAX_PURIFY_ROUNDS; rr++)
+            for(const auto& [f0, p] : top_alt) {
+                for(int rr = 1; rr <= MAX_PURIFY_ROUNDS; rr++) {
                     cand.altP_mid = max(cand.altP_mid,
                         estimate_balanced_fidelity(graph, p, tau_mid, rr));
+                    cand.altP_high = max(cand.altP_high,
+                        estimate_balanced_fidelity(graph, p, tau_high, rr));
+                }
+            }
 
             WorkloadClass cls;
             if(cand.sp0_high + EPS >= threshold) {
                 cls = WorkloadClass::SP_OK;
             } else if(cand.sp0_low + EPS < threshold
-                      && cand.spP_mid + EPS >= threshold) {
+                      && cand.spP_high + EPS >= threshold) {
                 cls = WorkloadClass::NEED_PURIFY;
             } else if(cand.spP_low + EPS < threshold
-                      && cand.alt0_mid + EPS >= threshold) {
+                      && cand.alt0_high + EPS >= threshold) {
                 cls = WorkloadClass::NEED_DETOUR;
             } else if(cand.spP_low + EPS < threshold
-                      && cand.altP_mid + EPS >= threshold) {
+                      && cand.altP_high + EPS >= threshold) {
                 cls = WorkloadClass::NEED_BOTH;
             } else if(cand.sp0_low + EPS >= threshold) {
                 rejected_tau_marginal++;
@@ -859,16 +867,15 @@ static vector<SDpair> generate_routing_favored_requests(
     for(auto& [cls, cands] : buckets)
         shuffle(cands.begin(), cands.end(), rng);
 
-    // 每 20 個 request 的組成：6 sp-ok / 6 need-purify / 5 need-detour / 3 need-both
-    // （30/30/25/15%）。以 20 為週期打散，常用 request_cnt 前綴 80/100/120…
-    // 都保持這個比例。
+    // 每 20 個 request 中，14 個需要 purification；其中 6 個還需要 detour。
+    // 另外保留 4 個 SP_OK 與 2 個 detour-only 作公平對照。
     vector<WorkloadClass> schedule;
     while((int)schedule.size() < request_count) {
         vector<WorkloadClass> cycle;
-        cycle.insert(cycle.end(), 6, WorkloadClass::SP_OK);
-        cycle.insert(cycle.end(), 6, WorkloadClass::NEED_PURIFY);
-        cycle.insert(cycle.end(), 5, WorkloadClass::NEED_DETOUR);
-        cycle.insert(cycle.end(), 3, WorkloadClass::NEED_BOTH);
+        cycle.insert(cycle.end(), 4, WorkloadClass::SP_OK);
+        cycle.insert(cycle.end(), 8, WorkloadClass::NEED_PURIFY);
+        cycle.insert(cycle.end(), 2, WorkloadClass::NEED_DETOUR);
+        cycle.insert(cycle.end(), 6, WorkloadClass::NEED_BOTH);
         shuffle(cycle.begin(), cycle.end(), rng);
         schedule.insert(schedule.end(), cycle.begin(), cycle.end());
     }
@@ -923,14 +930,18 @@ static vector<SDpair> generate_routing_favored_requests(
     map<int, int> hop_dist;
     for(const auto& c : selected) hop_dist[c.sp_hop]++;
     // 預測各能力等級在 tau_mid 可服務的 request 數（尚未考慮資源競爭）
-    int base_low = 0, base_mid = 0, base_high = 0, zfa_mid = 0, routing_mid = 0;
+    int base_low = 0, base_mid = 0, base_high = 0;
+    int zfa_mid = 0, zfa_high = 0, routing_mid = 0, routing_high = 0;
     for(const auto& c : selected) {
         if(c.sp0_low + EPS >= threshold) base_low++;
         if(c.sp0_mid + EPS >= threshold) base_mid++;
         if(c.sp0_high + EPS >= threshold) base_high++;
         if(max(c.sp0_mid, c.spP_mid) + EPS >= threshold) zfa_mid++;
+        if(max(c.sp0_high, c.spP_high) + EPS >= threshold) zfa_high++;
         if(max(max(c.sp0_mid, c.spP_mid),
                max(c.alt0_mid, c.altP_mid)) + EPS >= threshold) routing_mid++;
+        if(max(max(c.sp0_high, c.spP_high),
+               max(c.alt0_high, c.altP_high)) + EPS >= threshold) routing_high++;
     }
 
     cerr << "[routing-favored] selected=" << requests.size() << " mix:";
@@ -942,6 +953,8 @@ static vector<SDpair> generate_routing_favored_requests(
          << " @tau_mid SP-no-purify=" << base_mid
          << " ZFA(purify)=" << zfa_mid
          << " ZFA_routing=" << routing_mid << "/" << requests.size()
+         << " | @tau_high ZFA(purify)=" << zfa_high
+         << " ZFA_routing=" << routing_high
          << " | SP-no-purify @tau_low=" << base_low
          << " @tau_high=" << base_high << endl;
 
@@ -1015,7 +1028,11 @@ int main(){
         // double entangle_time = input_parameter["entangle_time"];
         double entangle_prob = input_parameter["entangle_prob"];
         string filename = file_path + "input/round_" + to_string(r) + ".input";
+#ifdef _WIN32
+        string command = "python graph_generator.py ";
+#else
         string command = "python3 graph_generator.py ";
+#endif
         double A = 0.25, B = 0.75, tao = default_setting["tao"], T = 10, n = 2;
         // derandom
         string parameter = to_string(num_nodes);
@@ -1166,7 +1183,7 @@ int main(){
              << (routing_favored_workload ? "routing-favored-capability-ladder"
                                           : "tau-stratified-fixed-workload") << "\n"
              << (routing_favored_workload
-                 ? "  mix: 30% sp-ok, 30% need-purify, 25% need-detour, 15% need-both\n"
+                 ? "  mix: 20% sp-ok, 40% need-purify, 10% need-detour, 30% need-both\n"
                  : "  mix (no purification): 50% robust, 30% mid-only, 20% low-only\n")
              << "  hop distribution:";
         for(const auto& [hop, count] : hop_dist)
