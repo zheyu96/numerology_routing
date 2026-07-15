@@ -1004,7 +1004,7 @@ int main(){
     apply_int_env("WPFA_NUM_NODES", "num_nodes");
     apply_int_env("WPFA_REQUEST_COUNT", "request_cnt");
     map<string, vector<double>> change_parameter;
-    change_parameter["request_cnt"] = {80,100,120,140,160};
+    change_parameter["request_cnt"] = {30,50,70,90,110};
     change_parameter["num_nodes"] = {30, 40, 50, 60, 70};
     change_parameter["min_fidelity"] = {0.6, 0.7, 0.8, 0.9, 0.95};
     change_parameter["avg_memory"] = {4, 6, 8, 10, 12, 16, 20};
@@ -1223,8 +1223,8 @@ int main(){
 
 
     // vector<string> X_names = {"time_limit", "request_cnt", "num_nodes", "avg_memory", "tao"};
-    vector<string> X_names = {"tao"};
-    //vector<string> X_names = { "request_cnt", "time_limit", "tao",  "fidelity_threshold" , "avg_memory","hop_count","swap_prob" };
+    //vector<string> X_names = {"tao"};
+    vector<string> X_names = { "request_cnt", "time_limit", "tao",  "fidelity_threshold" , "avg_memory","hop_count","swap_prob" };
     //vector<string> X_names = {"Zmin","bucket_eps","time_eta"};
     vector<string> Y_names = {"fidelity_gain", "succ_request_cnt","actual_req_cnt"};
     vector<string> algo_names = {"ZFA_UB","ZFA2","ZFA_routing","MyAlgo1", "MyAlgo3","SP_skewed","SP_balanced"};
